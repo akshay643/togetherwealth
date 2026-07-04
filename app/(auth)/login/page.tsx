@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ROUTES } from "@/lib/constants";
+import { demoEnabled } from "@/lib/demo-session";
 import { sanitizeNextPath } from "@/lib/validations/auth";
 import { LoginForm } from "../_components/login-form";
 
@@ -46,7 +47,7 @@ export default async function LoginPage(props: {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <LoginForm next={next} />
+          <LoginForm next={next} demoEnabled={demoEnabled()} />
         </CardContent>
       </Card>
       <p className="text-center text-sm text-muted-foreground">

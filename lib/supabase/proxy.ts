@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { DEMO_SESSION_COOKIE, demoEnabled } from "@/lib/demo-session";
 
 const PUBLIC_PATHS = [
   "/login",
@@ -48,8 +49,10 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
+  const hasDemoSession =
+    demoEnabled() && request.cookies.get(DEMO_SESSION_COOKIE)?.value === "1";
 
-  if (!user && !isPublicPath(pathname) && pathname !== "/") {
+  if (!user && !hasDemoSession && !isPublicPath(pathname) && pathname !== "/") {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
@@ -57,7 +60,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (
-    user &&
+    (user || hasDemoSession) &&
     (pathname === "/login" || pathname === "/signup" || pathname === "/")
   ) {
     const url = request.nextUrl.clone();

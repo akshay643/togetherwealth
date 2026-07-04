@@ -6,7 +6,7 @@ import { Gem, LogOut, Settings } from "lucide-react";
 
 import { ROUTES } from "@/lib/constants";
 import { initials } from "@/lib/format";
-import { createClient } from "@/lib/supabase/client";
+import { signOutAction } from "@/app/(auth)/actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,8 +30,7 @@ export function UserMenu({
   const router = useRouter();
 
   async function signOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
+    await signOutAction();
     router.push(ROUTES.login);
     router.refresh();
   }

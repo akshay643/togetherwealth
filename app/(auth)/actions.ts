@@ -1,8 +1,14 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ROUTES } from "@/lib/constants";
+import {
+  DEMO_SESSION_COOKIE,
+  demoEnabled,
+  isDemoLogin,
+} from "@/lib/demo-session";
 import {
   forgotPasswordSchema,
   loginSchema,
@@ -23,6 +29,21 @@ export async function loginAction(input: {
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) {
     return { error: "Please check your email and password and try again." };
+  }
+
+  if (
+    demoEnabled() &&
+    isDemoLogin(parsed.data.email, parsed.data.password)
+  ) {
+    const cookieStore = await cookies();
+    cookieStore.set(DEMO_SESSION_COOKIE, "1", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+    redirect(sanitizeNextPath(input.next) ?? ROUTES.dashboard);
   }
 
   const supabase = await createClient();
@@ -178,4 +199,12 @@ export async function resetPasswordAction(input: {
   }
 
   redirect(ROUTES.dashboard);
+}
+
+export async function signOutAction(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(DEMO_SESSION_COOKIE);
+
+  const supabase = await createClient();
+  await supabase.auth.signOut();
 }

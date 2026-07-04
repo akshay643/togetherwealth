@@ -25,6 +25,7 @@ import {
   type AssetClass,
   type Visibility,
 } from "@/lib/constants";
+import { getDemoRows } from "@/lib/demo-data";
 import { requireWorkspace } from "@/lib/data/workspace";
 import { formatCurrency, formatMonth, formatPercent, monthStart } from "@/lib/format";
 import {
@@ -110,78 +111,109 @@ export default async function DashboardPage() {
   const monthStartStr = monthStart(today);
   const sinceStr = format(subDays(today, 90), "yyyy-MM-dd");
 
-  const [
-    { data: accountRows },
-    { data: incomeRows },
-    { data: expenseRows },
-    { data: budgetRows },
-    { data: goalRows },
-    { data: investmentRows },
-    { data: debtRows },
-    { data: eventRows },
-    { data: taskRows },
-    { data: approvalRows },
-    { data: checkinRows },
-  ] = await Promise.all([
-    supabase.from("accounts").select("*").eq("workspace_id", wsId),
-    supabase
-      .from("income_sources")
-      .select("*")
-      .eq("workspace_id", wsId)
-      .eq("is_active", true),
-    supabase
-      .from("expenses")
-      .select("*")
-      .eq("workspace_id", wsId)
-      .gte("expense_date", sinceStr)
-      .order("expense_date", { ascending: false }),
-    supabase
-      .from("budgets")
-      .select("*")
-      .eq("workspace_id", wsId)
-      .eq("month", monthStartStr),
-    supabase
-      .from("savings_goals")
-      .select("*, goal_contributions(*)")
-      .eq("workspace_id", wsId)
-      .eq("status", "active")
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("investments")
-      .select("*, investment_holdings(*)")
-      .eq("workspace_id", wsId),
-    supabase
-      .from("debts")
-      .select("*")
-      .eq("workspace_id", wsId)
-      .eq("status", "active"),
-    supabase
-      .from("activity_events")
-      .select("*")
-      .eq("workspace_id", wsId)
-      .order("created_at", { ascending: false })
-      .limit(8),
-    supabase
-      .from("tasks")
-      .select("*")
-      .eq("workspace_id", wsId)
-      .eq("assigned_to", me)
-      .neq("status", "done")
-      .order("due_on", { ascending: true, nullsFirst: false })
-      .limit(6),
-    supabase
-      .from("approvals")
-      .select("*")
-      .eq("workspace_id", wsId)
-      .eq("status", "pending")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("money_checkins")
-      .select("id")
-      .eq("workspace_id", wsId)
-      .eq("month", monthStartStr)
-      .limit(1),
-  ]);
+  let accountRows;
+  let incomeRows;
+  let expenseRows;
+  let budgetRows;
+  let goalRows;
+  let investmentRows;
+  let debtRows;
+  let eventRows;
+  let taskRows;
+  let approvalRows;
+  let checkinRows;
+
+  if (ctx.isDemo) {
+    const demoRows = getDemoRows();
+    accountRows = demoRows.accounts;
+    incomeRows = demoRows.incomeSources.filter((row) => row.is_active);
+    expenseRows = demoRows.expenses.filter((row) => row.expense_date >= sinceStr);
+    budgetRows = demoRows.budgets.filter((row) => row.month === monthStartStr);
+    goalRows = demoRows.goals.filter((row) => row.status === "active");
+    investmentRows = demoRows.investments;
+    debtRows = demoRows.debts.filter((row) => row.status === "active");
+    eventRows = demoRows.events.slice(0, 8);
+    taskRows = demoRows.tasks
+      .filter((row) => row.assigned_to === me && row.status !== "done")
+      .slice(0, 6);
+    approvalRows = demoRows.approvals.filter((row) => row.status === "pending");
+    checkinRows = demoRows.checkins
+      .filter((row) => row.month === monthStartStr)
+      .map((row) => ({ id: row.id }));
+  } else {
+    [
+      { data: accountRows },
+      { data: incomeRows },
+      { data: expenseRows },
+      { data: budgetRows },
+      { data: goalRows },
+      { data: investmentRows },
+      { data: debtRows },
+      { data: eventRows },
+      { data: taskRows },
+      { data: approvalRows },
+      { data: checkinRows },
+    ] = await Promise.all([
+      supabase.from("accounts").select("*").eq("workspace_id", wsId),
+      supabase
+        .from("income_sources")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .eq("is_active", true),
+      supabase
+        .from("expenses")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .gte("expense_date", sinceStr)
+        .order("expense_date", { ascending: false }),
+      supabase
+        .from("budgets")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .eq("month", monthStartStr),
+      supabase
+        .from("savings_goals")
+        .select("*, goal_contributions(*)")
+        .eq("workspace_id", wsId)
+        .eq("status", "active")
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("investments")
+        .select("*, investment_holdings(*)")
+        .eq("workspace_id", wsId),
+      supabase
+        .from("debts")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .eq("status", "active"),
+      supabase
+        .from("activity_events")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .order("created_at", { ascending: false })
+        .limit(8),
+      supabase
+        .from("tasks")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .eq("assigned_to", me)
+        .neq("status", "done")
+        .order("due_on", { ascending: true, nullsFirst: false })
+        .limit(6),
+      supabase
+        .from("approvals")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("money_checkins")
+        .select("id")
+        .eq("workspace_id", wsId)
+        .eq("month", monthStartStr)
+        .limit(1),
+    ]);
+  }
 
   // ---- Visibility filtering (defensive, RLS already enforces) --------------
   const accounts = keepVisible(accountRows, (a) => a.owner_id, me);

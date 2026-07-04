@@ -7,9 +7,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { DEMO_EMAIL, DEMO_PASSWORD } from "@/lib/demo-session";
 import {
   Field,
   FieldError,
@@ -19,11 +21,15 @@ import {
 import { loginSchema, type LoginInput } from "@/lib/validations/auth";
 import { loginAction } from "../actions";
 
-const DEMO_EMAIL = "alex@demo.togetherwealth.app";
-const DEMO_PASSWORD = "demo-password-123";
-
-export function LoginForm({ next }: { next?: string }) {
+export function LoginForm({
+  next,
+  demoEnabled = true,
+}: {
+  next?: string;
+  demoEnabled?: boolean;
+}) {
   const [submitting, setSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -32,9 +38,11 @@ export function LoginForm({ next }: { next?: string }) {
 
   async function onSubmit(values: LoginInput) {
     setSubmitting(true);
+    setAuthError(null);
     try {
       const result = await loginAction({ ...values, next });
       if (result?.error) {
+        setAuthError(result.error);
         toast.error(result.error);
         setSubmitting(false);
       }
@@ -55,6 +63,12 @@ export function LoginForm({ next }: { next?: string }) {
 
   return (
     <div className="space-y-5">
+      {authError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{authError}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
         <FieldGroup>
           <Field data-invalid={!!errors.email || undefined}>
@@ -99,20 +113,22 @@ export function LoginForm({ next }: { next?: string }) {
         </FieldGroup>
       </form>
 
-      <div className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-        <p>
-          <span className="font-medium text-foreground">Try the demo:</span>{" "}
-          {DEMO_EMAIL} / {DEMO_PASSWORD}
-        </p>
-        <button
-          type="button"
-          onClick={fillDemo}
-          className="mt-1.5 inline-flex min-h-6 items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
-        >
-          <Sparkles className="size-3" aria-hidden="true" />
-          Fill in the demo login
-        </button>
-      </div>
+      {demoEnabled ? (
+        <div className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+          <p>
+            <span className="font-medium text-foreground">Try the demo:</span>{" "}
+            {DEMO_EMAIL} / {DEMO_PASSWORD}
+          </p>
+          <button
+            type="button"
+            onClick={fillDemo}
+            className="mt-1.5 inline-flex min-h-6 items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+          >
+            <Sparkles className="size-3" aria-hidden="true" />
+            Fill in the demo login
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

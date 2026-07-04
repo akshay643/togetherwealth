@@ -15,19 +15,21 @@ export default async function AppLayout({
   const ctx = await requireWorkspace();
   const supabase = await createClient();
 
-  const [{ data: notifications }, { count: unreadCount }] = await Promise.all([
-    supabase
-      .from("notifications")
-      .select("*")
-      .eq("user_id", ctx.user.id)
-      .order("created_at", { ascending: false })
-      .limit(10),
-    supabase
-      .from("notifications")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", ctx.user.id)
-      .eq("is_read", false),
-  ]);
+  const [{ data: notifications }, { count: unreadCount }] = ctx.isDemo
+    ? [{ data: [] }, { count: 0 }]
+    : await Promise.all([
+        supabase
+          .from("notifications")
+          .select("*")
+          .eq("user_id", ctx.user.id)
+          .order("created_at", { ascending: false })
+          .limit(10),
+        supabase
+          .from("notifications")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", ctx.user.id)
+          .eq("is_read", false),
+      ]);
 
   return (
     <SidebarProvider>

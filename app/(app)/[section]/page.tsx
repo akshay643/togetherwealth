@@ -62,6 +62,7 @@ import {
   formatPercent,
   monthStart,
 } from "@/lib/format";
+import { getDemoRows } from "@/lib/demo-data";
 import {
   budgetSpent,
   computeEmergencyCoverageMonths,
@@ -331,12 +332,25 @@ function DataTable({ children }: { children: React.ReactNode }) {
 }
 
 async function loadSectionData(ctx: WorkspaceContext): Promise<SectionData> {
-  const supabase = await createClient();
   const me = ctx.user.id;
-  const wsId = ctx.workspace.id;
   const today = new Date();
   const currentMonthKey = monthKeyOf(today);
   const currentMonthStart = monthStart(today);
+
+  if (ctx.isDemo) {
+    return {
+      ...getDemoRows(),
+      ctx,
+      me,
+      currency: ctx.workspace.currency || ctx.profile.currency || "USD",
+      today,
+      currentMonthKey,
+      currentMonthStart,
+    };
+  }
+
+  const supabase = await createClient();
+  const wsId = ctx.workspace.id;
 
   const [
     { data: accountRows },

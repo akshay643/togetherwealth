@@ -1,8 +1,11 @@
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 
 import { ROUTES, type Plan } from "@/lib/constants";
+import { getDemoWorkspaceContext } from "@/lib/demo-data";
+import { DEMO_SESSION_COOKIE, demoEnabled } from "@/lib/demo-session";
 import { createClient } from "@/lib/supabase/server";
 import type {
   CoupleWorkspace,
@@ -25,6 +28,7 @@ export type WorkspaceContext = {
   partner: Profile | null;
   plan: Plan;
   subscription: Subscription | null;
+  isDemo?: boolean;
 };
 
 /**
@@ -36,6 +40,14 @@ export type WorkspaceContext = {
  */
 export const getWorkspaceContext = cache(
   async (): Promise<WorkspaceContext | null> => {
+    const cookieStore = await cookies();
+    if (
+      demoEnabled() &&
+      cookieStore.get(DEMO_SESSION_COOKIE)?.value === "1"
+    ) {
+      return getDemoWorkspaceContext();
+    }
+
     const supabase = await createClient();
 
     const {
