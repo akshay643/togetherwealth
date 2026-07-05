@@ -92,6 +92,7 @@ import type {
   ResearchItem,
   Task,
 } from "@/lib/types/database";
+import { SectionActions } from "./_components/section-actions";
 
 const SECTIONS = {
   "net-worth": {
@@ -1411,7 +1412,17 @@ export default async function SectionPage(props: {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={meta.title} description={meta.description} />
+      <PageHeader
+        title={meta.title}
+        description={meta.description}
+        actions={
+          <SectionActions
+            section={slug}
+            today={data.today.toISOString().slice(0, 10)}
+            currentMonth={data.currentMonthStart.slice(0, 7)}
+          />
+        }
+      />
       {renderSection(slug, data)}
     </div>
   );
