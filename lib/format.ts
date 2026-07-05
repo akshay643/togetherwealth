@@ -1,12 +1,17 @@
 /** Shared formatting helpers. Keep display formatting consistent app-wide. */
 
+function localeForCurrency(currency: string): string {
+  if (currency.toUpperCase() === "INR") return "en-IN";
+  return "en-US";
+}
+
 export function formatCurrency(
   amount: number | null | undefined,
   opts: { currency?: string; compact?: boolean; showSign?: boolean } = {}
 ): string {
   const { currency = "USD", compact = false, showSign = false } = opts;
   const value = amount ?? 0;
-  const formatted = new Intl.NumberFormat("en-US", {
+  const formatted = new Intl.NumberFormat(localeForCurrency(currency), {
     style: "currency",
     currency,
     notation: compact ? "compact" : "standard",

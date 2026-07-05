@@ -10,6 +10,7 @@ import {
 export interface MoneyInputProps {
   value: string;
   onChange: (v: string) => void;
+  currency?: string;
   placeholder?: string;
   disabled?: boolean;
   id?: string;
@@ -23,21 +24,37 @@ function sanitizeMoney(raw: string): string {
   return `${whole}.${decimals.join("").slice(0, 2)}`;
 }
 
+function currencySymbol(currency: string): string {
+  const part = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    currencyDisplay: "narrowSymbol",
+  })
+    .formatToParts(0)
+    .find((item) => item.type === "currency");
+  return part?.value ?? currency.toUpperCase();
+}
+
 /**
- * Dollar amount input. Controlled string value (keep amounts as strings in
+ * Currency amount input. Controlled string value (keep amounts as strings in
  * form state; parse with Number() when submitting).
  */
 export function MoneyInput({
   value,
   onChange,
+  currency = "USD",
   placeholder = "0.00",
   disabled,
   id,
 }: MoneyInputProps) {
+  const normalizedCurrency = currency.toUpperCase();
+
   return (
     <InputGroup>
       <InputGroupAddon align="inline-start">
-        <InputGroupText aria-hidden>$</InputGroupText>
+        <InputGroupText aria-hidden>
+          {currencySymbol(normalizedCurrency)}
+        </InputGroupText>
       </InputGroupAddon>
       <InputGroupInput
         id={id}
@@ -49,7 +66,7 @@ export function MoneyInput({
         value={value}
         onChange={(e) => onChange(sanitizeMoney(e.target.value))}
         className="tabular-nums"
-        aria-label="Amount in dollars"
+        aria-label={`Amount in ${normalizedCurrency}`}
       />
     </InputGroup>
   );

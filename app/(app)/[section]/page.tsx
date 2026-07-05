@@ -691,6 +691,7 @@ function renderExpenses(data: SectionData) {
                   <TableCell>
                     <ExpenseRowActions
                       expense={row}
+                      currency={data.currency}
                       canManage={
                         !data.ctx.isDemo &&
                         (row.created_by === data.me ||
@@ -754,6 +755,7 @@ function renderBudgets(data: SectionData) {
                         <VisibilityBadge visibility={row.visibility} />
                         <BudgetRowActions
                           budget={row}
+                          currency={data.currency}
                           canManage={
                             !data.ctx.isDemo &&
                             (row.owner_id === data.me ||
@@ -789,8 +791,12 @@ function renderDebts(data: SectionData) {
       ? activeDebts.reduce((sum, row) => sum + row.apr * row.balance, 0) /
         totalDebt
       : 0;
-  const avalanche = simulateDebtPayoff(activeDebts, "avalanche");
-  const snowball = simulateDebtPayoff(activeDebts, "snowball");
+  const extraMonthly = 200;
+  const avalanche = simulateDebtPayoff(activeDebts, "avalanche", extraMonthly);
+  const snowball = simulateDebtPayoff(activeDebts, "snowball", extraMonthly);
+  const extraMonthlyLabel = formatCurrency(extraMonthly, {
+    currency: data.currency,
+  });
 
   return (
     <>
@@ -827,6 +833,7 @@ function renderDebts(data: SectionData) {
                     <TableCell>
                       <DebtRowActions
                         debt={row}
+                        currency={data.currency}
                         canManage={
                           !data.ctx.isDemo &&
                           (row.owner_id === data.me ||
@@ -848,7 +855,9 @@ function renderDebts(data: SectionData) {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="font-medium">Avalanche</p>
-                  <p className="text-xs text-muted-foreground">Highest APR first, plus $200 extra monthly.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Highest APR first, plus {extraMonthlyLabel} extra monthly.
+                  </p>
                 </div>
                 <p className="text-right text-sm tabular-nums">
                   {avalanche.completed ? `${avalanche.months} months` : "Long range"}
@@ -860,7 +869,9 @@ function renderDebts(data: SectionData) {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="font-medium">Snowball</p>
-                  <p className="text-xs text-muted-foreground">Smallest balance first, plus $200 extra monthly.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Smallest balance first, plus {extraMonthlyLabel} extra monthly.
+                  </p>
                 </div>
                 <p className="text-right text-sm tabular-nums">
                   {snowball.completed ? `${snowball.months} months` : "Long range"}
@@ -973,6 +984,7 @@ function renderGoals(data: SectionData, coupleOnly = false) {
                       <GoalRowActions
                         goal={row}
                         coupleOnly={coupleOnly}
+                        currency={data.currency}
                         canManage={
                           !data.ctx.isDemo &&
                           (row.created_by === data.me ||
@@ -1472,6 +1484,7 @@ export default async function SectionPage(props: {
             section={slug}
             today={data.today.toISOString().slice(0, 10)}
             currentMonth={data.currentMonthStart.slice(0, 7)}
+            currency={data.currency}
             readOnly={data.ctx.isDemo}
           />
         }

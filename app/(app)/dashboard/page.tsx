@@ -106,7 +106,7 @@ export default async function DashboardPage() {
 
   const me = ctx.user.id;
   const wsId = ctx.workspace.id;
-  const currency = ctx.workspace.currency || "USD";
+  const currency = ctx.workspace.currency || ctx.profile.currency || "USD";
   const today = new Date();
   const monthStartStr = monthStart(today);
   const sinceStr = format(subDays(today, 90), "yyyy-MM-dd");

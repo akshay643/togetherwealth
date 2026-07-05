@@ -64,6 +64,7 @@ type SectionActionsProps = {
   section: string;
   today: string;
   currentMonth: string;
+  currency: string;
   readOnly?: boolean;
 };
 
@@ -171,7 +172,13 @@ function AddDialogButton({
   );
 }
 
-function ExpenseDialog({ today }: { today: string }) {
+function ExpenseDialog({
+  today,
+  currency,
+}: {
+  today: string;
+  currency: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -253,6 +260,7 @@ function ExpenseDialog({ today }: { today: string }) {
                 id="expense-amount"
                 value={amount}
                 onChange={setAmount}
+                currency={currency}
               />
             </FieldBlock>
             <FieldBlock>
@@ -366,7 +374,13 @@ function ExpenseDialog({ today }: { today: string }) {
   );
 }
 
-function BudgetDialog({ currentMonth }: { currentMonth: string }) {
+function BudgetDialog({
+  currentMonth,
+  currency,
+}: {
+  currentMonth: string;
+  currency: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -454,6 +468,7 @@ function BudgetDialog({ currentMonth }: { currentMonth: string }) {
               id="budget-amount"
               value={amount}
               onChange={setAmount}
+              currency={currency}
             />
           </FieldBlock>
           <FieldBlock>
@@ -496,7 +511,7 @@ function BudgetDialog({ currentMonth }: { currentMonth: string }) {
   );
 }
 
-function DebtDialog() {
+function DebtDialog({ currency }: { currency: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -592,6 +607,7 @@ function DebtDialog() {
                 id="debt-balance"
                 value={balance}
                 onChange={setBalance}
+                currency={currency}
               />
             </FieldBlock>
             <FieldBlock>
@@ -600,6 +616,7 @@ function DebtDialog() {
                 id="debt-minimum"
                 value={minimumPayment}
                 onChange={setMinimumPayment}
+                currency={currency}
               />
             </FieldBlock>
           </div>
@@ -655,7 +672,13 @@ function DebtDialog() {
   );
 }
 
-function GoalDialog({ coupleOnly }: { coupleOnly: boolean }) {
+function GoalDialog({
+  coupleOnly,
+  currency,
+}: {
+  coupleOnly: boolean;
+  currency: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -774,6 +797,7 @@ function GoalDialog({ coupleOnly }: { coupleOnly: boolean }) {
                 id="goal-target-amount"
                 value={targetAmount}
                 onChange={setTargetAmount}
+                currency={currency}
               />
             </FieldBlock>
             <FieldBlock>
@@ -783,6 +807,7 @@ function GoalDialog({ coupleOnly }: { coupleOnly: boolean }) {
                 value={monthlyContribution}
                 onChange={setMonthlyContribution}
                 placeholder="Optional"
+                currency={currency}
               />
             </FieldBlock>
           </div>
@@ -878,9 +903,11 @@ function DeleteButton({
 export function ExpenseRowActions({
   expense,
   canManage,
+  currency,
 }: {
   expense: ExpenseActionRow;
   canManage: boolean;
+  currency: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -964,6 +991,7 @@ export function ExpenseRowActions({
                   id={`expense-amount-${expense.id}`}
                   value={amount}
                   onChange={setAmount}
+                  currency={currency}
                 />
               </FieldBlock>
               <FieldBlock>
@@ -1096,9 +1124,11 @@ export function ExpenseRowActions({
 export function BudgetRowActions({
   budget,
   canManage,
+  currency,
 }: {
   budget: BudgetActionRow;
   canManage: boolean;
+  currency: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -1192,6 +1222,7 @@ export function BudgetRowActions({
                 id={`budget-amount-${budget.id}`}
                 value={amount}
                 onChange={setAmount}
+                currency={currency}
               />
             </FieldBlock>
             <FieldBlock>
@@ -1250,9 +1281,11 @@ export function BudgetRowActions({
 export function DebtRowActions({
   debt,
   canManage,
+  currency,
 }: {
   debt: DebtActionRow;
   canManage: boolean;
+  currency: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -1351,6 +1384,7 @@ export function DebtRowActions({
                   id={`debt-balance-${debt.id}`}
                   value={balance}
                   onChange={setBalance}
+                  currency={currency}
                 />
               </FieldBlock>
               <FieldBlock>
@@ -1361,6 +1395,7 @@ export function DebtRowActions({
                   id={`debt-minimum-${debt.id}`}
                   value={minimumPayment}
                   onChange={setMinimumPayment}
+                  currency={currency}
                 />
               </FieldBlock>
             </div>
@@ -1425,10 +1460,12 @@ export function GoalRowActions({
   goal,
   coupleOnly = false,
   canManage,
+  currency,
 }: {
   goal: GoalActionRow;
   coupleOnly?: boolean;
   canManage: boolean;
+  currency: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -1549,6 +1586,7 @@ export function GoalRowActions({
                   id={`goal-target-${goal.id}`}
                   value={targetAmount}
                   onChange={setTargetAmount}
+                  currency={currency}
                 />
               </FieldBlock>
               <FieldBlock>
@@ -1559,6 +1597,7 @@ export function GoalRowActions({
                   id={`goal-monthly-${goal.id}`}
                   value={monthlyContribution}
                   onChange={setMonthlyContribution}
+                  currency={currency}
                 />
               </FieldBlock>
             </div>
@@ -1598,15 +1637,22 @@ export function SectionActions({
   section,
   today,
   currentMonth,
+  currency,
   readOnly = false,
 }: SectionActionsProps) {
   if (readOnly) return null;
-  if (section === "expenses") return <ExpenseDialog today={today} />;
-  if (section === "budgets") {
-    return <BudgetDialog currentMonth={currentMonth} />;
+  if (section === "expenses") {
+    return <ExpenseDialog today={today} currency={currency} />;
   }
-  if (section === "debts") return <DebtDialog />;
-  if (section === "goals") return <GoalDialog coupleOnly={false} />;
-  if (section === "couple-goals") return <GoalDialog coupleOnly />;
+  if (section === "budgets") {
+    return <BudgetDialog currentMonth={currentMonth} currency={currency} />;
+  }
+  if (section === "debts") return <DebtDialog currency={currency} />;
+  if (section === "goals") {
+    return <GoalDialog coupleOnly={false} currency={currency} />;
+  }
+  if (section === "couple-goals") {
+    return <GoalDialog coupleOnly currency={currency} />;
+  }
   return null;
 }

@@ -84,7 +84,7 @@ export const SPLIT_METHOD_META: Record<
   },
   fixed: {
     label: "Fixed amounts",
-    description: "Each partner covers a fixed dollar amount.",
+    description: "Each partner covers a fixed amount.",
   },
   custom: { label: "Custom", description: "Set exact amounts per partner." },
 };

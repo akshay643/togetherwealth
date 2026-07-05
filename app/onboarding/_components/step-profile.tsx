@@ -34,7 +34,7 @@ export function StepProfile({
   onDone,
 }: {
   profile: WizardProfile;
-  onDone: () => void;
+  onDone: (values: ProfileStepInput) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
 
@@ -56,7 +56,7 @@ export function StepProfile({
       setSubmitting(false);
       return;
     }
-    onDone();
+    onDone(values);
   }
 
   const { errors } = form.formState;

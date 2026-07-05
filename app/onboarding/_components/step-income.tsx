@@ -56,9 +56,11 @@ const EMPTY_INCOME: IncomeStepFormValues["incomes"][number] = {
 type BillState = { checked: boolean; amount: string };
 
 export function StepIncome({
+  currency,
   onBack,
   onDone,
 }: {
+  currency: string;
   onBack: () => void;
   onDone: () => void;
 }) {
@@ -247,6 +249,7 @@ export function StepIncome({
                             id={`income-amount-${index}`}
                             value={f.value}
                             onChange={f.onChange}
+                            currency={currency}
                           />
                         )}
                       />
@@ -321,6 +324,7 @@ export function StepIncome({
                         value={bill.amount}
                         onChange={(v) => setBill(preset.key, { amount: v })}
                         disabled={!bill.checked}
+                        currency={currency}
                       />
                     </div>
                   </div>

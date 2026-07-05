@@ -107,7 +107,12 @@ export function OnboardingWizard({
     content = (
       <StepProfile
         profile={profile}
-        onDone={() => {
+        onDone={(values) => {
+          setProfile((current) => ({
+            ...current,
+            fullName: values.fullName,
+            currency: values.currency,
+          }));
           setStep(1);
         }}
       />
@@ -158,7 +163,9 @@ export function OnboardingWizard({
       />
     );
   } else if (step === 5) {
-    content = <StepIncome onBack={back} onDone={finish} />;
+    content = (
+      <StepIncome currency={profile.currency} onBack={back} onDone={finish} />
+    );
   } else {
     content = (
       <Card>
