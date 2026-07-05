@@ -18,6 +18,7 @@ import {
 } from "@/lib/constants";
 import { formatCurrency, formatDate, formatPercent } from "@/lib/format";
 import type {
+  BillPayment,
   Budget,
   Debt,
   Expense,
@@ -226,6 +227,10 @@ function nextDueDay(dueDay: number, from: Date): Date {
   return candidate;
 }
 
+function monthStartKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
 /**
  * Bills due within the horizon: recurring expenses (deduped by
  * description + cadence, keeping the most recent occurrence) plus active
@@ -234,11 +239,14 @@ function nextDueDay(dueDay: number, from: Date): Date {
 export function computeUpcomingBills(
   expenses: Expense[],
   debts: Debt[],
-  opts: { from?: Date; horizonDays?: number } = {}
+  opts: { from?: Date; horizonDays?: number; billPayments?: BillPayment[] } = {}
 ): UpcomingBill[] {
   const from = opts.from ?? new Date();
   const horizon = addDays(startOfDayLocal(from), opts.horizonDays ?? 14);
   const bills: UpcomingBill[] = [];
+  const paidExpenseMonths = new Set(
+    (opts.billPayments ?? []).map((payment) => `${payment.expense_id}:${payment.month}`)
+  );
 
   const recurring = new Map<string, Expense>();
   for (const e of expenses) {
@@ -251,6 +259,7 @@ export function computeUpcomingBills(
     if (!e.recurrence) continue;
     const next = nextRecurringDate(e.expense_date, e.recurrence, from);
     if (next && next <= horizon) {
+      if (paidExpenseMonths.has(`${e.id}:${monthStartKey(next)}`)) continue;
       bills.push({
         id: `expense-${e.id}`,
         label: e.description,

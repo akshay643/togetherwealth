@@ -44,6 +44,7 @@ import { hasCheckins } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 import type {
   Account,
+  BillPayment,
   Debt,
   GoalWithContributions,
   InvestmentWithHoldings,
@@ -122,6 +123,7 @@ export default async function DashboardPage() {
   let taskRows;
   let approvalRows;
   let checkinRows;
+  let billPaymentRows: BillPayment[] | null | undefined;
 
   if (ctx.isDemo) {
     const demoRows = getDemoRows();
@@ -140,6 +142,7 @@ export default async function DashboardPage() {
     checkinRows = demoRows.checkins
       .filter((row) => row.month === monthStartStr)
       .map((row) => ({ id: row.id }));
+    billPaymentRows = demoRows.billPayments;
   } else {
     [
       { data: accountRows },
@@ -153,6 +156,7 @@ export default async function DashboardPage() {
       { data: taskRows },
       { data: approvalRows },
       { data: checkinRows },
+      { data: billPaymentRows },
     ] = await Promise.all([
       supabase.from("accounts").select("*").eq("workspace_id", wsId),
       supabase
@@ -212,6 +216,10 @@ export default async function DashboardPage() {
         .eq("workspace_id", wsId)
         .eq("month", monthStartStr)
         .limit(1),
+      supabase
+        .from("bill_payments")
+        .select("*")
+        .eq("workspace_id", wsId),
     ]);
   }
 
@@ -334,6 +342,7 @@ export default async function DashboardPage() {
   const bills = computeUpcomingBills(expenses, debts, {
     from: today,
     horizonDays: 14,
+    billPayments: billPaymentRows ?? [],
   });
   const totalDebtBalance = debts.reduce((sum, d) => sum + d.balance, 0);
   const nextDebtBill =

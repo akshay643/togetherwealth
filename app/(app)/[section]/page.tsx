@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   Activity,
@@ -30,6 +31,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { VisibilityBadge } from "@/components/shared/visibility-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -51,6 +53,7 @@ import {
   GOAL_TYPE_LABELS,
   MONEY_STYLE_META,
   PLAN_META,
+  ROUTES,
   SPLIT_METHOD_META,
   type Visibility,
 } from "@/lib/constants";
@@ -80,6 +83,7 @@ import type {
   Account,
   ActivityEvent,
   Approval,
+  BillPayment,
   Budget,
   Debt,
   DocumentRow,
@@ -94,6 +98,7 @@ import type {
 } from "@/lib/types/database";
 import {
   BudgetRowActions,
+  BillPaymentActions,
   DebtRowActions,
   ExpenseRowActions,
   GoalRowActions,
@@ -197,6 +202,7 @@ type SectionRows = {
   accounts: Account[];
   incomeSources: IncomeSource[];
   expenses: Expense[];
+  billPayments: BillPayment[];
   budgets: Budget[];
   goals: GoalWithContributions[];
   investments: InvestmentWithHoldings[];
@@ -216,6 +222,7 @@ type SectionData = SectionRows & {
   today: Date;
   currentMonthKey: string;
   currentMonthStart: string;
+  billMonthStart: string;
 };
 
 export async function generateMetadata(props: {
@@ -280,6 +287,31 @@ function formatFileSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function parseMonthStart(value: string | null | undefined, fallback: Date): string {
+  if (value && /^\d{4}-\d{2}$/.test(value)) return `${value}-01`;
+  return monthStart(fallback);
+}
+
+function monthParam(monthStartValue: string): string {
+  return monthStartValue.slice(0, 7);
+}
+
+function addMonthsToMonthStart(monthStartValue: string, delta: number): string {
+  const date = new Date(`${monthStartValue}T00:00:00`);
+  date.setMonth(date.getMonth() + delta);
+  return monthStart(date);
+}
+
+function billDueDateForMonth(expense: Expense, monthStartValue: string): Date {
+  const source = new Date(`${expense.expense_date}T00:00:00`);
+  const monthDate = new Date(`${monthStartValue}T00:00:00`);
+  const dueDay = Math.min(
+    source.getDate(),
+    new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate()
+  );
+  return new Date(monthDate.getFullYear(), monthDate.getMonth(), dueDay);
+}
+
 function memberName(ctx: WorkspaceContext, id: string | null): string {
   if (!id) return "Unassigned";
   const member = ctx.members.find((row) => row.user_id === id);
@@ -338,7 +370,10 @@ function DataTable({ children }: { children: React.ReactNode }) {
   return <Table className="min-w-[720px]">{children}</Table>;
 }
 
-async function loadSectionData(ctx: WorkspaceContext): Promise<SectionData> {
+async function loadSectionData(
+  ctx: WorkspaceContext,
+  billMonthStart: string
+): Promise<SectionData> {
   const me = ctx.user.id;
   const today = new Date();
   const currentMonthKey = monthKeyOf(today);
@@ -353,6 +388,7 @@ async function loadSectionData(ctx: WorkspaceContext): Promise<SectionData> {
       today,
       currentMonthKey,
       currentMonthStart,
+      billMonthStart,
     };
   }
 
@@ -363,6 +399,7 @@ async function loadSectionData(ctx: WorkspaceContext): Promise<SectionData> {
     { data: accountRows },
     { data: incomeRows },
     { data: expenseRows },
+    { data: billPaymentRows },
     { data: budgetRows },
     { data: goalRows },
     { data: investmentRows },
@@ -382,6 +419,11 @@ async function loadSectionData(ctx: WorkspaceContext): Promise<SectionData> {
       .eq("workspace_id", wsId)
       .order("expense_date", { ascending: false })
       .limit(100),
+    supabase
+      .from("bill_payments")
+      .select("*")
+      .eq("workspace_id", wsId)
+      .eq("month", billMonthStart),
     supabase
       .from("budgets")
       .select("*")
@@ -444,9 +486,11 @@ async function loadSectionData(ctx: WorkspaceContext): Promise<SectionData> {
     today,
     currentMonthKey,
     currentMonthStart,
+    billMonthStart,
     accounts: keepVisible(accountRows, (row) => row.owner_id, me),
     incomeSources: keepVisible(incomeRows, (row) => row.owner_id, me),
     expenses: keepVisible(expenseRows, (row) => row.created_by, me),
+    billPayments: billPaymentRows ?? [],
     budgets: keepVisible(budgetRows, (row) => row.owner_id, me),
     goals: keepVisible(
       (goalRows ?? []) as unknown as GoalWithContributions[],
@@ -654,6 +698,25 @@ function renderExpenses(data: SectionData) {
   const unsettled = data.expenses.filter(
     (row) => row.split_method !== "none" && !row.is_settled
   ).length;
+  const recurringBills = data.expenses
+    .filter((row) => row.is_recurring && row.recurrence)
+    .sort(
+      (a, b) =>
+        billDueDateForMonth(a, data.billMonthStart).getTime() -
+        billDueDateForMonth(b, data.billMonthStart).getTime()
+    );
+  const paidBillCount = recurringBills.filter((row) =>
+    data.billPayments.some((payment) => payment.expense_id === row.id)
+  ).length;
+  const billMonthLabel = formatMonth(
+    new Date(`${data.billMonthStart}T00:00:00`)
+  );
+  const previousBillMonth = monthParam(
+    addMonthsToMonthStart(data.billMonthStart, -1)
+  );
+  const nextBillMonth = monthParam(
+    addMonthsToMonthStart(data.billMonthStart, 1)
+  );
 
   return (
     <>
@@ -663,6 +726,90 @@ function renderExpenses(data: SectionData) {
         <StatCard label="Recurring" value={String(recurring)} icon={ArrowLeftRight} />
         <StatCard label="Unsettled splits" value={String(unsettled)} icon={Users} />
       </MetricGrid>
+      <SectionCard title="Monthly bills">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">{billMonthLabel}</p>
+            <p className="text-xs text-muted-foreground">
+              {paidBillCount} paid · {Math.max(0, recurringBills.length - paidBillCount)} left
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`${ROUTES.expenses}?month=${previousBillMonth}`}>
+                Previous
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={ROUTES.expenses}>Current</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`${ROUTES.expenses}?month=${nextBillMonth}`}>
+                Next
+              </Link>
+            </Button>
+          </div>
+        </div>
+        {recurringBills.length > 0 ? (
+          <DataTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Bill</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Due</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Paid date</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {recurringBills.map((row) => {
+                const payment =
+                  data.billPayments.find(
+                    (item) => item.expense_id === row.id
+                  ) ?? null;
+                const canManage =
+                  !data.ctx.isDemo &&
+                  (row.visibility !== "private" ||
+                    row.created_by === data.me ||
+                    row.paid_by === data.me);
+                return (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-medium">{row.description}</TableCell>
+                    <TableCell>{EXPENSE_CATEGORY_LABELS[row.category]}</TableCell>
+                    <TableCell>{formatDate(billDueDateForMonth(row, data.billMonthStart))}</TableCell>
+                    <TableCell>
+                      <Badge variant={payment ? "default" : "outline"}>
+                        {payment ? "Paid" : "Unpaid"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{payment ? formatDate(payment.paid_on) : "-"}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatCurrency(payment?.amount ?? row.amount, {
+                        currency: data.currency,
+                      })}
+                    </TableCell>
+                    <TableCell>
+                      <BillPaymentActions
+                        expenseId={row.id}
+                        description={row.description}
+                        month={monthParam(data.billMonthStart)}
+                        defaultAmount={row.amount}
+                        currency={data.currency}
+                        payment={payment}
+                        canManage={canManage}
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </DataTable>
+        ) : (
+          <SimpleEmpty icon={ArrowLeftRight} title="No recurring bills" description="Mark expenses as recurring to track month-by-month payments here." />
+        )}
+      </SectionCard>
       <SectionCard title="Recent expenses">
         {data.expenses.length > 0 ? (
           <DataTable>
@@ -1467,12 +1614,17 @@ function renderSection(slug: SectionSlug, data: SectionData) {
 
 export default async function SectionPage(props: {
   params: Promise<{ section: string }>;
+  searchParams: Promise<{ month?: string }>;
 }) {
   const { section } = await props.params;
+  const searchParams = await props.searchParams;
   const slug = getSection(section);
   const meta = SECTIONS[slug];
   const ctx = await requireWorkspace();
-  const data = await loadSectionData(ctx);
+  const data = await loadSectionData(
+    ctx,
+    parseMonthStart(searchParams.month, new Date())
+  );
 
   return (
     <div className="space-y-6">

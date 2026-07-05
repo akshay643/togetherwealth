@@ -9,6 +9,7 @@ import type {
   Account,
   ActivityEvent,
   Approval,
+  BillPayment,
   Budget,
   CoupleWorkspace,
   Debt,
@@ -121,6 +122,7 @@ export type DemoRows = {
   accounts: Account[];
   incomeSources: IncomeSource[];
   expenses: Expense[];
+  billPayments: BillPayment[];
   budgets: Budget[];
   goals: GoalWithContributions[];
   investments: InvestmentWithHoldings[];
@@ -376,6 +378,20 @@ export function getDemoRows(): DemoRows {
         notes: null,
         created_at: isoDaysAgo(25),
         updated_at: isoDaysAgo(15),
+      },
+    ],
+    billPayments: [
+      {
+        id: "bill-payment-rent-current",
+        workspace_id: WORKSPACE_ID,
+        expense_id: "expense-rent",
+        month: monthStart(new Date()),
+        paid_on: currentMonthDate(1),
+        amount: 2800,
+        note: "Paid from joint checking",
+        created_by: ALEX_ID,
+        created_at: isoDaysAgo(4),
+        updated_at: isoDaysAgo(4),
       },
     ],
     budgets: [

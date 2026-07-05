@@ -85,6 +85,19 @@ const budgetSchema = z.object({
 });
 const budgetWithIdSchema = budgetSchema.merge(idSchema);
 
+const billPaymentSchema = z.object({
+  expenseId: z.uuid(),
+  month: monthSchema,
+  paidOn: z.iso.date("Choose a valid paid date"),
+  amount: dollars,
+  note: optionalNotes,
+});
+
+const billPaymentDeleteSchema = z.object({
+  expenseId: z.uuid(),
+  month: monthSchema,
+});
+
 const debtSchema = z.object({
   name: shortText("Name this debt"),
   debtType: z.enum(DEBT_TYPES),
@@ -196,6 +209,17 @@ function canManageOwnedOrHousehold(
     row.owner_id === null ||
     row.created_by === userId ||
     row.visibility === "household"
+  );
+}
+
+function canTrackBillPayment(
+  row: { created_by: string; paid_by: string; visibility: string },
+  userId: string
+): boolean {
+  return (
+    row.visibility !== "private" ||
+    row.created_by === userId ||
+    row.paid_by === userId
   );
 }
 
@@ -352,6 +376,132 @@ export async function createBudgetAction(
       link: ROUTES.budgets,
     });
   }
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function saveBillPaymentAction(
+  input: z.input<typeof billPaymentSchema>
+): Promise<ActionResult> {
+  const parsed = billPaymentSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the bill payment details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+  const { data: bill } = await supabase
+    .from("expenses")
+    .select("id, description, created_by, paid_by, visibility, is_recurring")
+    .eq("id", data.expenseId)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!bill || !bill.is_recurring) {
+    return { error: "That recurring bill could not be found." };
+  }
+  if (!canTrackBillPayment(bill, ctx.user.id)) {
+    return { error: "You can only track bills visible to you." };
+  }
+
+  const { data: payment, error } = await supabase
+    .from("bill_payments")
+    .upsert(
+      {
+        workspace_id: ctx.workspace.id,
+        expense_id: data.expenseId,
+        month: data.month,
+        paid_on: data.paidOn,
+        amount: data.amount,
+        note: data.note?.trim() || null,
+        created_by: ctx.user.id,
+      },
+      { onConflict: "expense_id,month" }
+    )
+    .select("id")
+    .single();
+
+  if (error || !payment) {
+    return { error: "The bill payment could not be saved. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "bill_payment.saved",
+    entityType: "expense",
+    entityId: bill.id,
+    visibility: bill.visibility,
+    summary:
+      bill.visibility === "private"
+        ? `You marked a private bill paid: ${bill.description}`
+        : `${name} marked a bill paid: ${bill.description}`,
+    metadata: { month: data.month, paid_on: data.paidOn, amount: data.amount },
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function deleteBillPaymentAction(
+  input: z.input<typeof billPaymentDeleteSchema>
+): Promise<ActionResult> {
+  const parsed = billPaymentDeleteSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: "That bill payment could not be found." };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+  const { data: bill } = await supabase
+    .from("expenses")
+    .select("id, description, created_by, paid_by, visibility, is_recurring")
+    .eq("id", data.expenseId)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!bill || !bill.is_recurring) {
+    return { error: "That recurring bill could not be found." };
+  }
+  if (!canTrackBillPayment(bill, ctx.user.id)) {
+    return { error: "You can only track bills visible to you." };
+  }
+
+  const { error } = await supabase
+    .from("bill_payments")
+    .delete()
+    .eq("workspace_id", ctx.workspace.id)
+    .eq("expense_id", data.expenseId)
+    .eq("month", data.month);
+
+  if (error) {
+    return { error: "The bill payment could not be removed. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "bill_payment.removed",
+    entityType: "expense",
+    entityId: bill.id,
+    visibility: bill.visibility,
+    summary:
+      bill.visibility === "private"
+        ? `You marked a private bill unpaid: ${bill.description}`
+        : `${name} marked a bill unpaid: ${bill.description}`,
+    metadata: { month: data.month },
+  });
 
   await refreshMoneyPages();
   return { success: true };

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -72,9 +72,11 @@ import {
   createResearchAction,
   createTaskAction,
   deleteBudgetAction,
+  deleteBillPaymentAction,
   deleteDebtAction,
   deleteExpenseAction,
   deleteGoalAction,
+  saveBillPaymentAction,
   updateBudgetAction,
   updateDebtAction,
   updateExpenseAction,
@@ -146,6 +148,13 @@ type GoalActionRow = {
   emoji: string | null;
   notes: string | null;
 };
+
+type BillPaymentActionRow = {
+  id: string;
+  paid_on: string;
+  amount: number;
+  note: string | null;
+} | null;
 
 const VISIBILITY_DEFAULT: Visibility = "shared";
 
@@ -1822,11 +1831,17 @@ function RowActionButton({
 
 function DeleteButton({
   label,
+  title = "Delete this item?",
   description,
+  buttonLabel = "Delete",
+  confirmLabel = "Delete",
   onDelete,
 }: Readonly<{
   label: string;
+  title?: string;
   description: string;
+  buttonLabel?: string;
+  confirmLabel?: string;
   onDelete: () => Promise<ActionResult>;
 }>) {
   const router = useRouter();
@@ -1851,15 +1866,143 @@ function DeleteButton({
           className="h-8 px-2 text-destructive hover:text-destructive"
         >
           <Trash2 className="size-4" aria-hidden="true" />
-          Delete
+          {buttonLabel}
         </Button>
       }
-      title="Delete this item?"
+      title={title}
       description={description}
-      confirmLabel="Delete"
+      confirmLabel={confirmLabel}
       destructive
       onConfirm={handleDelete}
     />
+  );
+}
+
+export function BillPaymentActions({
+  expenseId,
+  description,
+  month,
+  defaultAmount,
+  currency,
+  payment,
+  canManage,
+}: {
+  expenseId: string;
+  description: string;
+  month: string;
+  defaultAmount: number;
+  currency: string;
+  payment: BillPaymentActionRow;
+  canManage: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [paidOn, setPaidOn] = useState(
+    payment?.paid_on ?? new Date().toISOString().slice(0, 10)
+  );
+  const [amount, setAmount] = useState(
+    amountString(payment?.amount ?? defaultAmount)
+  );
+  const [note, setNote] = useState(payment?.note ?? "");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    const result = await saveBillPaymentAction({
+      expenseId,
+      month,
+      paidOn,
+      amount: amountOf(amount),
+      note,
+    });
+    setPending(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Bill payment saved");
+    setOpen(false);
+    router.refresh();
+  }
+
+  if (!canManage) {
+    return (
+      <div className="flex justify-end">
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <RowActionButton>
+            {payment ? (
+              <Pencil className="size-4" aria-hidden="true" />
+            ) : (
+              <CheckCircle2 className="size-4" aria-hidden="true" />
+            )}
+            {payment ? "Edit" : "Paid"}
+          </RowActionButton>
+        </DialogTrigger>
+        <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {payment ? "Edit bill payment" : "Mark bill paid"}
+            </DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={submit}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FieldBlock>
+                <Label htmlFor={`bill-paid-on-${expenseId}`}>Paid date</Label>
+                <Input
+                  id={`bill-paid-on-${expenseId}`}
+                  type="date"
+                  value={paidOn}
+                  onChange={(event) => setPaidOn(event.target.value)}
+                  required
+                />
+              </FieldBlock>
+              <FieldBlock>
+                <Label htmlFor={`bill-amount-${expenseId}`}>Amount</Label>
+                <MoneyInput
+                  id={`bill-amount-${expenseId}`}
+                  value={amount}
+                  onChange={setAmount}
+                  currency={currency}
+                />
+              </FieldBlock>
+            </div>
+            <FieldBlock>
+              <Label htmlFor={`bill-note-${expenseId}`}>Note</Label>
+              <Textarea
+                id={`bill-note-${expenseId}`}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Optional"
+                maxLength={500}
+              />
+            </FieldBlock>
+            <DialogFooter>
+              <SubmitButton pending={pending}>Save payment</SubmitButton>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      {payment ? (
+        <DeleteButton
+          label="Bill marked unpaid"
+          title="Mark this bill unpaid?"
+          description="This removes the paid marker for this bill month. The recurring bill itself remains."
+          buttonLabel="Unpaid"
+          confirmLabel="Mark unpaid"
+          onDelete={() => deleteBillPaymentAction({ expenseId, month })}
+        />
+      ) : null}
+    </div>
   );
 }
 

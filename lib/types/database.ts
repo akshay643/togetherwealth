@@ -161,6 +161,19 @@ export type ExpenseSplit = {
   created_at: string;
 }
 
+export type BillPayment = {
+  id: string;
+  workspace_id: string;
+  expense_id: string;
+  month: string; // date, first of month (yyyy-MM-01)
+  paid_on: string; // date
+  amount: number;
+  note: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export type Budget = {
   id: string;
   workspace_id: string;
@@ -496,6 +509,10 @@ export type Database = {
       expense_splits: TableOf<
         ExpenseSplit,
         "id" | "created_at" | "percent" | "is_settled" | "settled_at"
+      >;
+      bill_payments: TableOf<
+        BillPayment,
+        "id" | Timestamps | "note"
       >;
       budgets: TableOf<
         Budget,
