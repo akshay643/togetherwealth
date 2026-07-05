@@ -13,7 +13,7 @@ import {
   ROUTES,
   VISIBILITY_LEVELS,
 } from "@/lib/constants";
-import { requireWorkspace } from "@/lib/data/workspace";
+import { requireWorkspace, type WorkspaceContext } from "@/lib/data/workspace";
 import { canCreateGoal } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 
@@ -95,6 +95,35 @@ function actorName(fullName: string | null, email: string): string {
   return fullName?.trim() || email || "Your partner";
 }
 
+function canManageExpense(
+  row: { created_by: string; paid_by: string; visibility: string },
+  userId: string
+): boolean {
+  return (
+    row.created_by === userId ||
+    row.paid_by === userId ||
+    row.visibility === "household"
+  );
+}
+
+function canManageOwnedOrHousehold(
+  row: { owner_id?: string | null; created_by?: string; visibility: string },
+  userId: string
+): boolean {
+  return (
+    row.owner_id === userId ||
+    row.owner_id === null ||
+    row.created_by === userId ||
+    row.visibility === "household"
+  );
+}
+
+function demoReadOnly(ctx: WorkspaceContext): ActionResult | null {
+  return ctx.isDemo
+    ? { error: "Demo data is read-only. Create an account to save changes." }
+    : null;
+}
+
 async function refreshMoneyPages() {
   revalidatePath(ROUTES.dashboard);
   revalidatePath(ROUTES.netWorth);
@@ -117,6 +146,8 @@ export async function createExpenseAction(
   }
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const data = parsed.data;
   const expenseType = data.visibility === "private" ? "personal" : data.expenseType;
@@ -184,6 +215,8 @@ export async function createBudgetAction(
   }
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const data = parsed.data;
   const isHousehold = data.scope === "household";
@@ -247,6 +280,8 @@ export async function createDebtAction(
   }
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const data = parsed.data;
 
@@ -309,6 +344,8 @@ export async function createGoalAction(
   }
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const { count } = await supabase
     .from("savings_goals")
@@ -381,10 +418,26 @@ export async function updateExpenseAction(
   }
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const data = parsed.data;
   const expenseType =
     data.visibility === "private" ? "personal" : data.expenseType;
+  const { data: existing } = await supabase
+    .from("expenses")
+    .select("created_by, paid_by, visibility")
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That expense could not be found." };
+  if (!canManageExpense(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the person who created or paid this expense can edit it. Household expenses can be edited by either partner.",
+    };
+  }
 
   const { data: expense, error } = await supabase
     .from("expenses")
@@ -434,15 +487,23 @@ export async function deleteExpenseAction(input: {
   if (!parsed.success) return { error: "That expense could not be found." };
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const { data: existing } = await supabase
     .from("expenses")
-    .select("id, description, visibility")
+    .select("id, description, created_by, paid_by, visibility")
     .eq("id", parsed.data.id)
     .eq("workspace_id", ctx.workspace.id)
     .maybeSingle();
 
   if (!existing) return { error: "That expense could not be found." };
+  if (!canManageExpense(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the person who created or paid this expense can delete it. Household expenses can be deleted by either partner.",
+    };
+  }
 
   const { error } = await supabase
     .from("expenses")
@@ -483,10 +544,26 @@ export async function updateBudgetAction(
   }
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const data = parsed.data;
   const isHousehold = data.scope === "household";
   const visibility = isHousehold ? "household" : data.visibility;
+  const { data: existing } = await supabase
+    .from("budgets")
+    .select("owner_id, visibility")
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That budget could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the owner can edit this personal budget. Household budgets can be edited by either partner.",
+    };
+  }
 
   const { data: budget, error } = await supabase
     .from("budgets")
@@ -536,6 +613,8 @@ export async function deleteBudgetAction(input: {
   if (!parsed.success) return { error: "That budget could not be found." };
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const { data: existing } = await supabase
     .from("budgets")
@@ -545,6 +624,12 @@ export async function deleteBudgetAction(input: {
     .maybeSingle();
 
   if (!existing) return { error: "That budget could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the owner can delete this personal budget. Household budgets can be deleted by either partner.",
+    };
+  }
 
   const { error } = await supabase
     .from("budgets")
@@ -583,8 +668,24 @@ export async function updateDebtAction(
   }
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const data = parsed.data;
+  const { data: existing } = await supabase
+    .from("debts")
+    .select("owner_id, visibility")
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That debt could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the owner can edit this debt. Household debts can be edited by either partner.",
+    };
+  }
 
   const { data: debt, error } = await supabase
     .from("debts")
@@ -632,6 +733,8 @@ export async function deleteDebtAction(input: {
   if (!parsed.success) return { error: "That debt could not be found." };
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const { data: existing } = await supabase
     .from("debts")
@@ -641,6 +744,12 @@ export async function deleteDebtAction(input: {
     .maybeSingle();
 
   if (!existing) return { error: "That debt could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the owner can delete this debt. Household debts can be deleted by either partner.",
+    };
+  }
 
   const { error } = await supabase
     .from("debts")
@@ -679,8 +788,24 @@ export async function updateGoalAction(
   }
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const data = parsed.data;
+  const { data: existing } = await supabase
+    .from("savings_goals")
+    .select("created_by, visibility")
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That goal could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the creator can edit this goal. Household goals can be edited by either partner.",
+    };
+  }
 
   const { data: goal, error } = await supabase
     .from("savings_goals")
@@ -729,6 +854,8 @@ export async function deleteGoalAction(input: {
   if (!parsed.success) return { error: "That goal could not be found." };
 
   const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
   const supabase = await createClient();
   const { data: existing } = await supabase
     .from("savings_goals")
@@ -738,6 +865,12 @@ export async function deleteGoalAction(input: {
     .maybeSingle();
 
   if (!existing) return { error: "That goal could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the creator can delete this goal. Household goals can be deleted by either partner.",
+    };
+  }
 
   const { error } = await supabase
     .from("savings_goals")

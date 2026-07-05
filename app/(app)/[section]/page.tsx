@@ -689,7 +689,15 @@ function renderExpenses(data: SectionData) {
                   <TableCell><VisibilityBadge visibility={row.visibility} /></TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(row.amount, { currency: data.currency })}</TableCell>
                   <TableCell>
-                    <ExpenseRowActions expense={row} />
+                    <ExpenseRowActions
+                      expense={row}
+                      canManage={
+                        !data.ctx.isDemo &&
+                        (row.created_by === data.me ||
+                          row.paid_by === data.me ||
+                          row.visibility === "household")
+                      }
+                    />
                   </TableCell>
                 </TableRow>
               ))}
@@ -744,7 +752,15 @@ function renderBudgets(data: SectionData) {
                       <p>{formatCurrency(spent, { currency: data.currency })} / {formatCurrency(row.amount, { currency: data.currency })}</p>
                       <div className="flex flex-wrap justify-end gap-1">
                         <VisibilityBadge visibility={row.visibility} />
-                        <BudgetRowActions budget={row} />
+                        <BudgetRowActions
+                          budget={row}
+                          canManage={
+                            !data.ctx.isDemo &&
+                            (row.owner_id === data.me ||
+                              row.owner_id === null ||
+                              row.visibility === "household")
+                          }
+                        />
                       </div>
                     </div>
                   </div>
@@ -809,7 +825,14 @@ function renderDebts(data: SectionData) {
                     <TableCell className="text-right tabular-nums">{formatCurrency(row.minimum_payment, { currency: data.currency })}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(row.balance, { currency: data.currency })}</TableCell>
                     <TableCell>
-                      <DebtRowActions debt={row} />
+                      <DebtRowActions
+                        debt={row}
+                        canManage={
+                          !data.ctx.isDemo &&
+                          (row.owner_id === data.me ||
+                            row.visibility === "household")
+                        }
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -947,7 +970,15 @@ function renderGoals(data: SectionData, coupleOnly = false) {
                       <Progress className="mt-1" value={progressPercent(savedAmount, row.target_amount)} />
                     </TableCell>
                     <TableCell>
-                      <GoalRowActions goal={row} coupleOnly={coupleOnly} />
+                      <GoalRowActions
+                        goal={row}
+                        coupleOnly={coupleOnly}
+                        canManage={
+                          !data.ctx.isDemo &&
+                          (row.created_by === data.me ||
+                            row.visibility === "household")
+                        }
+                      />
                     </TableCell>
                   </TableRow>
                 );
@@ -1441,6 +1472,7 @@ export default async function SectionPage(props: {
             section={slug}
             today={data.today.toISOString().slice(0, 10)}
             currentMonth={data.currentMonthStart.slice(0, 7)}
+            readOnly={data.ctx.isDemo}
           />
         }
       />

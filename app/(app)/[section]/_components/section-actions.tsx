@@ -64,6 +64,7 @@ type SectionActionsProps = {
   section: string;
   today: string;
   currentMonth: string;
+  readOnly?: boolean;
 };
 
 type ActionResult = { error: string } | { success: true };
@@ -874,7 +875,13 @@ function DeleteButton({
   );
 }
 
-export function ExpenseRowActions({ expense }: { expense: ExpenseActionRow }) {
+export function ExpenseRowActions({
+  expense,
+  canManage,
+}: {
+  expense: ExpenseActionRow;
+  canManage: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -921,6 +928,10 @@ export function ExpenseRowActions({ expense }: { expense: ExpenseActionRow }) {
 
   return (
     <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <RowActionButton>
@@ -1076,11 +1087,19 @@ export function ExpenseRowActions({ expense }: { expense: ExpenseActionRow }) {
         description="This removes the expense from spending, cash flow, and budget totals."
         onDelete={() => deleteExpenseAction({ id: expense.id })}
       />
+        </>
+      )}
     </div>
   );
 }
 
-export function BudgetRowActions({ budget }: { budget: BudgetActionRow }) {
+export function BudgetRowActions({
+  budget,
+  canManage,
+}: {
+  budget: BudgetActionRow;
+  canManage: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -1115,6 +1134,10 @@ export function BudgetRowActions({ budget }: { budget: BudgetActionRow }) {
 
   return (
     <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <RowActionButton>
@@ -1218,11 +1241,19 @@ export function BudgetRowActions({ budget }: { budget: BudgetActionRow }) {
         description="This removes the monthly budget row. Expenses remain untouched."
         onDelete={() => deleteBudgetAction({ id: budget.id })}
       />
+        </>
+      )}
     </div>
   );
 }
 
-export function DebtRowActions({ debt }: { debt: DebtActionRow }) {
+export function DebtRowActions({
+  debt,
+  canManage,
+}: {
+  debt: DebtActionRow;
+  canManage: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -1263,6 +1294,10 @@ export function DebtRowActions({ debt }: { debt: DebtActionRow }) {
 
   return (
     <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <RowActionButton>
@@ -1380,6 +1415,8 @@ export function DebtRowActions({ debt }: { debt: DebtActionRow }) {
         description="This removes the debt and any payoff calculations based on it."
         onDelete={() => deleteDebtAction({ id: debt.id })}
       />
+        </>
+      )}
     </div>
   );
 }
@@ -1387,9 +1424,11 @@ export function DebtRowActions({ debt }: { debt: DebtActionRow }) {
 export function GoalRowActions({
   goal,
   coupleOnly = false,
+  canManage,
 }: {
   goal: GoalActionRow;
   coupleOnly?: boolean;
+  canManage: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -1433,6 +1472,10 @@ export function GoalRowActions({
 
   return (
     <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <RowActionButton>
@@ -1545,6 +1588,8 @@ export function GoalRowActions({
         description="This removes the goal and its contribution history."
         onDelete={() => deleteGoalAction({ id: goal.id })}
       />
+        </>
+      )}
     </div>
   );
 }
@@ -1553,7 +1598,9 @@ export function SectionActions({
   section,
   today,
   currentMonth,
+  readOnly = false,
 }: SectionActionsProps) {
+  if (readOnly) return null;
   if (section === "expenses") return <ExpenseDialog today={today} />;
   if (section === "budgets") {
     return <BudgetDialog currentMonth={currentMonth} />;
