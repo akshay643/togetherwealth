@@ -6,16 +6,20 @@ import { z } from "zod";
 import { logActivity, notifyPartner } from "@/lib/activity";
 import {
   ASSET_CLASSES,
+  CHECKIN_STATUSES,
   DECISION_TYPES,
   DEBT_TYPES,
   DOCUMENT_CATEGORIES,
+  DOCUMENTS_BUCKET,
   EXPENSE_CATEGORIES,
   EXPENSE_TYPES,
   GOAL_TYPES,
   RECURRENCE_FREQUENCIES,
+  RESEARCH_STATUSES,
   RISK_LEVELS,
   ROUTES,
   TASK_PRIORITIES,
+  TASK_STATUSES,
   VISIBILITY_LEVELS,
 } from "@/lib/constants";
 import { requireWorkspace, type WorkspaceContext } from "@/lib/data/workspace";
@@ -137,6 +141,10 @@ const investmentSchema = z.object({
   asOf: optionalDate,
   notes: optionalNotes,
 });
+const investmentWithIdSchema = investmentSchema.extend({
+  id: z.uuid(),
+  holdingId: z.uuid(),
+});
 
 const emergencyFundSchema = z.object({
   name: shortText("Name this emergency fund"),
@@ -157,12 +165,21 @@ const researchSchema = z.object({
   visibility: z.enum(VISIBILITY_LEVELS),
   notes: optionalNotes,
 });
+const researchWithIdSchema = researchSchema.extend({
+  id: z.uuid(),
+  status: z.enum(RESEARCH_STATUSES),
+  finalDecision: z.string().trim().max(500, "Keep the decision under 500 characters").optional(),
+});
 
 const checkinSchema = z.object({
   month: monthSchema,
   title: z.string().trim().max(100, "Keep it under 100 characters").optional(),
   scheduledFor: optionalDate,
   summary: optionalNotes,
+});
+const checkinWithIdSchema = checkinSchema.extend({
+  id: z.uuid(),
+  status: z.enum(CHECKIN_STATUSES),
 });
 
 const documentSchema = z.object({
@@ -176,6 +193,15 @@ const documentSchema = z.object({
   reminderOn: optionalDate,
   notes: optionalNotes,
 });
+const documentUpdateSchema = z.object({
+  id: z.uuid(),
+  name: shortText("Name this document"),
+  category: z.enum(DOCUMENT_CATEGORIES),
+  visibility: z.enum(VISIBILITY_LEVELS),
+  expiresOn: optionalDate,
+  reminderOn: optionalDate,
+  notes: optionalNotes,
+});
 
 const taskSchema = z.object({
   title: shortText("Name this task"),
@@ -183,6 +209,10 @@ const taskSchema = z.object({
   assignedTo: z.uuid().nullable(),
   dueOn: optionalDate,
   priority: z.enum(TASK_PRIORITIES),
+});
+const taskWithIdSchema = taskSchema.extend({
+  id: z.uuid(),
+  status: z.enum(TASK_STATUSES),
 });
 
 function actorName(fullName: string | null, email: string): string {
@@ -1070,6 +1100,584 @@ export async function createTaskAction(
     title: `${name} added a task`,
     body: data.title,
     link: ROUTES.tasks,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function updateInvestmentAction(
+  input: z.input<typeof investmentWithIdSchema>
+): Promise<ActionResult> {
+  const parsed = investmentWithIdSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the investment details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+  const { data: existing } = await supabase
+    .from("investments")
+    .select("id, owner_id, visibility")
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That investment could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the owner can edit this investment. Household investments can be edited by either partner.",
+    };
+  }
+
+  const { data: investment, error } = await supabase
+    .from("investments")
+    .update({
+      name: data.name,
+      asset_class: data.assetClass,
+      account_name: data.accountName?.trim() || null,
+      risk_level: data.riskLevel,
+      visibility: data.visibility,
+      is_watchlist: data.isWatchlist,
+      notes: data.notes?.trim() || null,
+    })
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !investment) {
+    return { error: "The investment could not be updated. Please try again." };
+  }
+
+  const { data: holding, error: holdingError } = await supabase
+    .from("investment_holdings")
+    .update({
+      name: data.holdingName,
+      symbol: data.symbol?.trim() || null,
+      quantity: data.quantity,
+      cost_basis: data.costBasis,
+      current_value: data.currentValue,
+      as_of: data.asOf || null,
+      notes: data.notes?.trim() || null,
+    })
+    .eq("id", data.holdingId)
+    .eq("investment_id", data.id)
+    .select("id")
+    .maybeSingle();
+
+  if (holdingError || !holding) {
+    return { error: "The holding could not be updated. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "investment.updated",
+    entityType: "investment",
+    entityId: investment.id,
+    visibility: data.visibility,
+    summary:
+      data.visibility === "private"
+        ? `You updated a private investment: ${data.name}`
+        : `${name} updated an investment: ${data.name}`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function deleteInvestmentAction(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return { error: "That investment could not be found." };
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("investments")
+    .select("id, name, owner_id, visibility")
+    .eq("id", parsed.data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That investment could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the owner can delete this investment. Household investments can be deleted by either partner.",
+    };
+  }
+
+  const { error } = await supabase
+    .from("investments")
+    .delete()
+    .eq("id", existing.id)
+    .eq("workspace_id", ctx.workspace.id);
+
+  if (error) {
+    return { error: "The investment could not be deleted. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "investment.deleted",
+    entityType: "investment",
+    entityId: existing.id,
+    visibility: existing.visibility,
+    summary:
+      existing.visibility === "private"
+        ? `You deleted a private investment: ${existing.name}`
+        : `${name} deleted an investment: ${existing.name}`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function updateResearchAction(
+  input: z.input<typeof researchWithIdSchema>
+): Promise<ActionResult> {
+  const parsed = researchWithIdSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the research details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+  const { data: existing } = await supabase
+    .from("research_items")
+    .select("created_by, visibility")
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That research item could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the creator can edit this research item. Household research can be edited by either partner.",
+    };
+  }
+
+  const { data: research, error } = await supabase
+    .from("research_items")
+    .update({
+      title: data.title,
+      decision_type: data.decisionType,
+      estimated_cost: data.estimatedCost,
+      pros: data.pros,
+      cons: data.cons,
+      status: data.status,
+      final_decision: data.finalDecision?.trim() || null,
+      decided_at: data.status === "decided" ? new Date().toISOString() : null,
+      visibility: data.visibility,
+      notes: data.notes?.trim() || null,
+    })
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !research) {
+    return { error: "The research item could not be updated. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "research.updated",
+    entityType: "research",
+    entityId: research.id,
+    visibility: data.visibility,
+    summary:
+      data.visibility === "private"
+        ? `You updated private research: ${data.title}`
+        : `${name} updated research: ${data.title}`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function deleteResearchAction(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return { error: "That research item could not be found." };
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("research_items")
+    .select("id, title, created_by, visibility")
+    .eq("id", parsed.data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That research item could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the creator can delete this research item. Household research can be deleted by either partner.",
+    };
+  }
+
+  const { error } = await supabase
+    .from("research_items")
+    .delete()
+    .eq("id", existing.id)
+    .eq("workspace_id", ctx.workspace.id);
+
+  if (error) {
+    return { error: "The research item could not be deleted. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "research.deleted",
+    entityType: "research",
+    entityId: existing.id,
+    visibility: existing.visibility,
+    summary:
+      existing.visibility === "private"
+        ? `You deleted private research: ${existing.title}`
+        : `${name} deleted research: ${existing.title}`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function updateCheckinAction(
+  input: z.input<typeof checkinWithIdSchema>
+): Promise<ActionResult> {
+  const parsed = checkinWithIdSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the check-in details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+
+  const { data: checkin, error } = await supabase
+    .from("money_checkins")
+    .update({
+      month: data.month,
+      title: data.title?.trim() || null,
+      status: data.status,
+      scheduled_for: data.scheduledFor || null,
+      summary: data.summary?.trim() || null,
+      completed_at: data.status === "completed" ? new Date().toISOString() : null,
+    })
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !checkin) {
+    return { error: "The check-in could not be updated. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "checkin.updated",
+    entityType: "checkin",
+    entityId: checkin.id,
+    summary: `${name} updated a money check-in`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function deleteCheckinAction(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return { error: "That check-in could not be found." };
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("money_checkins")
+    .select("id, title")
+    .eq("id", parsed.data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That check-in could not be found." };
+
+  const { error } = await supabase
+    .from("money_checkins")
+    .delete()
+    .eq("id", existing.id)
+    .eq("workspace_id", ctx.workspace.id);
+
+  if (error) {
+    return { error: "The check-in could not be deleted. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "checkin.deleted",
+    entityType: "checkin",
+    entityId: existing.id,
+    summary: `${name} deleted a money check-in`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function updateDocumentAction(
+  input: z.input<typeof documentUpdateSchema>
+): Promise<ActionResult> {
+  const parsed = documentUpdateSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the document details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+  const { data: existing } = await supabase
+    .from("documents")
+    .select("owner_id, visibility")
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That document could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the owner can edit this document. Household documents can be edited by either partner.",
+    };
+  }
+
+  const { data: document, error } = await supabase
+    .from("documents")
+    .update({
+      name: data.name,
+      category: data.category,
+      visibility: data.visibility,
+      expires_on: data.expiresOn || null,
+      reminder_on: data.reminderOn || null,
+      notes: data.notes?.trim() || null,
+    })
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !document) {
+    return { error: "The document could not be updated. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "document.updated",
+    entityType: "document",
+    entityId: document.id,
+    visibility: data.visibility,
+    summary:
+      data.visibility === "private"
+        ? `You updated a private document: ${data.name}`
+        : `${name} updated a document: ${data.name}`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function deleteDocumentAction(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return { error: "That document could not be found." };
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("documents")
+    .select("id, name, owner_id, visibility, storage_path")
+    .eq("id", parsed.data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That document could not be found." };
+  if (!canManageOwnedOrHousehold(existing, ctx.user.id)) {
+    return {
+      error:
+        "Only the owner can delete this document. Household documents can be deleted by either partner.",
+    };
+  }
+
+  const { error } = await supabase
+    .from("documents")
+    .delete()
+    .eq("id", existing.id)
+    .eq("workspace_id", ctx.workspace.id);
+
+  if (error) {
+    return { error: "The document could not be deleted. Please try again." };
+  }
+
+  if (existing.owner_id === ctx.user.id) {
+    await supabase.storage.from(DOCUMENTS_BUCKET).remove([existing.storage_path]);
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "document.deleted",
+    entityType: "document",
+    entityId: existing.id,
+    visibility: existing.visibility,
+    summary:
+      existing.visibility === "private"
+        ? `You deleted a private document: ${existing.name}`
+        : `${name} deleted a document: ${existing.name}`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function updateTaskAction(
+  input: z.input<typeof taskWithIdSchema>
+): Promise<ActionResult> {
+  const parsed = taskWithIdSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the task details." };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const data = parsed.data;
+  if (
+    data.assignedTo &&
+    !ctx.members.some((member) => member.user_id === data.assignedTo)
+  ) {
+    return { error: "Choose someone from this workspace." };
+  }
+
+  const supabase = await createClient();
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .update({
+      assigned_to: data.assignedTo,
+      title: data.title,
+      description: data.description?.trim() || null,
+      due_on: data.dueOn || null,
+      status: data.status,
+      priority: data.priority,
+      completed_at: data.status === "done" ? new Date().toISOString() : null,
+    })
+    .eq("id", data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !task) {
+    return { error: "The task could not be updated. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "task.updated",
+    entityType: "task",
+    entityId: task.id,
+    summary: `${name} updated a task: ${data.title}`,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function deleteTaskAction(input: {
+  id: string;
+}): Promise<ActionResult> {
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return { error: "That task could not be found." };
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("tasks")
+    .select("id, title")
+    .eq("id", parsed.data.id)
+    .eq("workspace_id", ctx.workspace.id)
+    .maybeSingle();
+
+  if (!existing) return { error: "That task could not be found." };
+
+  const { error } = await supabase
+    .from("tasks")
+    .delete()
+    .eq("id", existing.id)
+    .eq("workspace_id", ctx.workspace.id);
+
+  if (error) {
+    return { error: "The task could not be deleted. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "task.deleted",
+    entityType: "task",
+    entityId: existing.id,
+    summary: `${name} deleted a task: ${existing.title}`,
   });
 
   await refreshMoneyPages();

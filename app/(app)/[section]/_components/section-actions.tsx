@@ -32,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ASSET_CLASS_LABELS,
   ASSET_CLASSES,
+  CHECKIN_STATUSES,
   DECISION_TYPE_LABELS,
   DECISION_TYPES,
   DEBT_TYPE_LABELS,
@@ -45,9 +46,12 @@ import {
   GOAL_TYPE_LABELS,
   GOAL_TYPES,
   RECURRENCE_FREQUENCIES,
+  RESEARCH_STATUSES,
   RISK_LEVELS,
   TASK_PRIORITIES,
+  TASK_STATUSES,
   type AssetClass,
+  type CheckinStatus,
   type DebtType,
   type DecisionType,
   type DocumentCategory,
@@ -55,8 +59,10 @@ import {
   type ExpenseType,
   type GoalType,
   type RecurrenceFrequency,
+  type ResearchStatus,
   type RiskLevel,
   type TaskPriority,
+  type TaskStatus,
   type Visibility,
 } from "@/lib/constants";
 import { createClient as createBrowserClient } from "@/lib/supabase/client";
@@ -73,14 +79,24 @@ import {
   createTaskAction,
   deleteBudgetAction,
   deleteBillPaymentAction,
+  deleteCheckinAction,
   deleteDebtAction,
+  deleteDocumentAction,
   deleteExpenseAction,
   deleteGoalAction,
+  deleteInvestmentAction,
+  deleteResearchAction,
+  deleteTaskAction,
   saveBillPaymentAction,
   updateBudgetAction,
+  updateCheckinAction,
   updateDebtAction,
+  updateDocumentAction,
   updateExpenseAction,
   updateGoalAction,
+  updateInvestmentAction,
+  updateResearchAction,
+  updateTaskAction,
 } from "../actions";
 
 type SectionActionsProps = {
@@ -147,6 +163,70 @@ type GoalActionRow = {
   visibility: Visibility;
   emoji: string | null;
   notes: string | null;
+};
+
+type InvestmentActionRow = {
+  id: string;
+  name: string;
+  asset_class: AssetClass;
+  account_name: string | null;
+  risk_level: RiskLevel | null;
+  visibility: Visibility;
+  is_watchlist: boolean;
+  notes: string | null;
+};
+
+type InvestmentHoldingActionRow = {
+  id: string;
+  symbol: string | null;
+  name: string;
+  quantity: number | null;
+  cost_basis: number | null;
+  current_value: number;
+  as_of: string | null;
+  notes: string | null;
+};
+
+type ResearchActionRow = {
+  id: string;
+  title: string;
+  decision_type: DecisionType;
+  notes: string | null;
+  pros: string[];
+  cons: string[];
+  estimated_cost: number | null;
+  final_decision: string | null;
+  status: ResearchStatus;
+  visibility: Visibility;
+};
+
+type CheckinActionRow = {
+  id: string;
+  month: string;
+  title: string | null;
+  status: CheckinStatus;
+  scheduled_for: string | null;
+  summary: string | null;
+};
+
+type DocumentActionRow = {
+  id: string;
+  name: string;
+  category: DocumentCategory;
+  visibility: Visibility;
+  expires_on: string | null;
+  reminder_on: string | null;
+  notes: string | null;
+};
+
+type TaskActionRow = {
+  id: string;
+  assigned_to: string | null;
+  title: string;
+  description: string | null;
+  due_on: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
 };
 
 type BillPaymentActionRow = {
@@ -2733,6 +2813,926 @@ export function GoalRowActions({
         description="This removes the goal and its contribution history."
         onDelete={() => deleteGoalAction({ id: goal.id })}
       />
+        </>
+      )}
+    </div>
+  );
+}
+
+export function InvestmentRowActions({
+  investment,
+  holding,
+  canManage,
+  currency,
+}: {
+  investment: InvestmentActionRow;
+  holding: InvestmentHoldingActionRow;
+  canManage: boolean;
+  currency: string;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [name, setName] = useState(investment.name);
+  const [assetClass, setAssetClass] = useState<AssetClass>(investment.asset_class);
+  const [accountName, setAccountName] = useState(investment.account_name ?? "");
+  const [riskLevel, setRiskLevel] = useState<RiskLevel | "none">(
+    investment.risk_level ?? "none"
+  );
+  const [visibility, setVisibility] = useState<Visibility>(investment.visibility);
+  const [isWatchlist, setIsWatchlist] = useState(investment.is_watchlist);
+  const [holdingName, setHoldingName] = useState(holding.name);
+  const [symbol, setSymbol] = useState(holding.symbol ?? "");
+  const [quantity, setQuantity] = useState(amountString(holding.quantity));
+  const [costBasis, setCostBasis] = useState(amountString(holding.cost_basis));
+  const [currentValue, setCurrentValue] = useState(
+    amountString(holding.current_value)
+  );
+  const [asOf, setAsOf] = useState(holding.as_of ?? "");
+  const [notes, setNotes] = useState(investment.notes ?? holding.notes ?? "");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    const result = await updateInvestmentAction({
+      id: investment.id,
+      holdingId: holding.id,
+      name,
+      assetClass,
+      accountName,
+      riskLevel: riskLevel === "none" ? null : riskLevel,
+      visibility,
+      isWatchlist,
+      holdingName,
+      symbol,
+      quantity: quantityOf(quantity),
+      costBasis: optionalAmountOf(costBasis),
+      currentValue: amountOf(currentValue),
+      asOf,
+      notes,
+    });
+    setPending(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Investment updated");
+    setOpen(false);
+    router.refresh();
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <RowActionButton>
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit
+              </RowActionButton>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit investment</DialogTitle>
+                <DialogDescription>Update this investment and holding.</DialogDescription>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={submit}>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`investment-name-${investment.id}`}>
+                      Investment name
+                    </Label>
+                    <Input
+                      id={`investment-name-${investment.id}`}
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      maxLength={100}
+                      required
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`investment-asset-${investment.id}`}>
+                      Asset class
+                    </Label>
+                    <Select
+                      value={assetClass}
+                      onValueChange={(value) => setAssetClass(value as AssetClass)}
+                    >
+                      <SelectTrigger
+                        id={`investment-asset-${investment.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ASSET_CLASSES.map((item) => (
+                          <SelectItem key={item} value={item}>
+                            {ASSET_CLASS_LABELS[item]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`holding-name-${holding.id}`}>Holding</Label>
+                    <Input
+                      id={`holding-name-${holding.id}`}
+                      value={holdingName}
+                      onChange={(event) => setHoldingName(event.target.value)}
+                      maxLength={100}
+                      required
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`holding-symbol-${holding.id}`}>Symbol</Label>
+                    <Input
+                      id={`holding-symbol-${holding.id}`}
+                      value={symbol}
+                      onChange={(event) =>
+                        setSymbol(event.target.value.toUpperCase())
+                      }
+                      maxLength={20}
+                    />
+                  </FieldBlock>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`holding-value-${holding.id}`}>
+                      Current value
+                    </Label>
+                    <MoneyInput
+                      id={`holding-value-${holding.id}`}
+                      value={currentValue}
+                      onChange={setCurrentValue}
+                      currency={currency}
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`holding-cost-${holding.id}`}>
+                      Cost basis
+                    </Label>
+                    <MoneyInput
+                      id={`holding-cost-${holding.id}`}
+                      value={costBasis}
+                      onChange={setCostBasis}
+                      currency={currency}
+                    />
+                  </FieldBlock>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`holding-quantity-${holding.id}`}>
+                      Quantity
+                    </Label>
+                    <Input
+                      id={`holding-quantity-${holding.id}`}
+                      type="number"
+                      min="0"
+                      step="0.000001"
+                      inputMode="decimal"
+                      value={quantity}
+                      onChange={(event) => setQuantity(event.target.value)}
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`holding-as-of-${holding.id}`}>Value date</Label>
+                    <Input
+                      id={`holding-as-of-${holding.id}`}
+                      type="date"
+                      value={asOf}
+                      onChange={(event) => setAsOf(event.target.value)}
+                    />
+                  </FieldBlock>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`investment-account-${investment.id}`}>
+                      Account
+                    </Label>
+                    <Input
+                      id={`investment-account-${investment.id}`}
+                      value={accountName}
+                      onChange={(event) => setAccountName(event.target.value)}
+                      maxLength={100}
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`investment-risk-${investment.id}`}>
+                      Risk level
+                    </Label>
+                    <Select
+                      value={riskLevel}
+                      onValueChange={(value) =>
+                        setRiskLevel(value as RiskLevel | "none")
+                      }
+                    >
+                      <SelectTrigger
+                        id={`investment-risk-${investment.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not set</SelectItem>
+                        {RISK_LEVELS.map((item) => (
+                          <SelectItem key={item} value={item}>
+                            {titleCase(item)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                </div>
+                <div className="flex items-center gap-3 rounded-lg border p-3">
+                  <Checkbox
+                    id={`investment-watchlist-${investment.id}`}
+                    checked={isWatchlist}
+                    onCheckedChange={(checked) => setIsWatchlist(checked === true)}
+                  />
+                  <Label
+                    htmlFor={`investment-watchlist-${investment.id}`}
+                    className="flex-1"
+                  >
+                    Watchlist only
+                  </Label>
+                </div>
+                <FieldBlock>
+                  <Label>Visibility</Label>
+                  <VisibilitySelect value={visibility} onChange={setVisibility} />
+                </FieldBlock>
+                <FieldBlock>
+                  <Label htmlFor={`investment-notes-${investment.id}`}>Notes</Label>
+                  <Textarea
+                    id={`investment-notes-${investment.id}`}
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    maxLength={500}
+                  />
+                </FieldBlock>
+                <DialogFooter>
+                  <SubmitButton pending={pending}>Save changes</SubmitButton>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <DeleteButton
+            label="Investment deleted"
+            description="This removes the investment and its holdings."
+            onDelete={() => deleteInvestmentAction({ id: investment.id })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+export function ResearchRowActions({
+  item,
+  canManage,
+  currency,
+}: {
+  item: ResearchActionRow;
+  canManage: boolean;
+  currency: string;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [title, setTitle] = useState(item.title);
+  const [decisionType, setDecisionType] = useState<DecisionType>(
+    item.decision_type
+  );
+  const [status, setStatus] = useState<ResearchStatus>(item.status);
+  const [estimatedCost, setEstimatedCost] = useState(
+    amountString(item.estimated_cost)
+  );
+  const [pros, setPros] = useState(item.pros.join("\n"));
+  const [cons, setCons] = useState(item.cons.join("\n"));
+  const [finalDecision, setFinalDecision] = useState(item.final_decision ?? "");
+  const [visibility, setVisibility] = useState<Visibility>(item.visibility);
+  const [notes, setNotes] = useState(item.notes ?? "");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    const result = await updateResearchAction({
+      id: item.id,
+      title,
+      decisionType,
+      estimatedCost: optionalAmountOf(estimatedCost),
+      pros: linesOf(pros),
+      cons: linesOf(cons),
+      status,
+      finalDecision,
+      visibility,
+      notes,
+    });
+    setPending(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Research updated");
+    setOpen(false);
+    router.refresh();
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <RowActionButton>
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit
+              </RowActionButton>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit research</DialogTitle>
+                <DialogDescription>Update this money decision.</DialogDescription>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={submit}>
+                <FieldBlock>
+                  <Label htmlFor={`research-title-${item.id}`}>Title</Label>
+                  <Input
+                    id={`research-title-${item.id}`}
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    maxLength={100}
+                    required
+                  />
+                </FieldBlock>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`research-type-${item.id}`}>Type</Label>
+                    <Select
+                      value={decisionType}
+                      onValueChange={(value) =>
+                        setDecisionType(value as DecisionType)
+                      }
+                    >
+                      <SelectTrigger
+                        id={`research-type-${item.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DECISION_TYPES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {DECISION_TYPE_LABELS[option]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`research-status-${item.id}`}>Status</Label>
+                    <Select
+                      value={status}
+                      onValueChange={(value) => setStatus(value as ResearchStatus)}
+                    >
+                      <SelectTrigger
+                        id={`research-status-${item.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {RESEARCH_STATUSES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {titleCase(option)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                </div>
+                <FieldBlock>
+                  <Label htmlFor={`research-cost-${item.id}`}>Estimated cost</Label>
+                  <MoneyInput
+                    id={`research-cost-${item.id}`}
+                    value={estimatedCost}
+                    onChange={setEstimatedCost}
+                    currency={currency}
+                  />
+                </FieldBlock>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`research-pros-${item.id}`}>Pros</Label>
+                    <Textarea
+                      id={`research-pros-${item.id}`}
+                      value={pros}
+                      onChange={(event) => setPros(event.target.value)}
+                      maxLength={500}
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`research-cons-${item.id}`}>Cons</Label>
+                    <Textarea
+                      id={`research-cons-${item.id}`}
+                      value={cons}
+                      onChange={(event) => setCons(event.target.value)}
+                      maxLength={500}
+                    />
+                  </FieldBlock>
+                </div>
+                <FieldBlock>
+                  <Label htmlFor={`research-final-${item.id}`}>Decision</Label>
+                  <Textarea
+                    id={`research-final-${item.id}`}
+                    value={finalDecision}
+                    onChange={(event) => setFinalDecision(event.target.value)}
+                    maxLength={500}
+                  />
+                </FieldBlock>
+                <FieldBlock>
+                  <Label>Visibility</Label>
+                  <VisibilitySelect value={visibility} onChange={setVisibility} />
+                </FieldBlock>
+                <FieldBlock>
+                  <Label htmlFor={`research-notes-${item.id}`}>Notes</Label>
+                  <Textarea
+                    id={`research-notes-${item.id}`}
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    maxLength={500}
+                  />
+                </FieldBlock>
+                <DialogFooter>
+                  <SubmitButton pending={pending}>Save changes</SubmitButton>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <DeleteButton
+            label="Research deleted"
+            description="This removes the research item and its notes."
+            onDelete={() => deleteResearchAction({ id: item.id })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+export function CheckinRowActions({
+  checkin,
+  canManage,
+}: {
+  checkin: CheckinActionRow;
+  canManage: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [month, setMonth] = useState(checkin.month.slice(0, 7));
+  const [title, setTitle] = useState(checkin.title ?? "");
+  const [status, setStatus] = useState<CheckinStatus>(checkin.status);
+  const [scheduledFor, setScheduledFor] = useState(checkin.scheduled_for ?? "");
+  const [summary, setSummary] = useState(checkin.summary ?? "");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    const result = await updateCheckinAction({
+      id: checkin.id,
+      month,
+      title,
+      status,
+      scheduledFor,
+      summary,
+    });
+    setPending(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Check-in updated");
+    setOpen(false);
+    router.refresh();
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <RowActionButton>
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit
+              </RowActionButton>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit check-in</DialogTitle>
+                <DialogDescription>Update the money check-in.</DialogDescription>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={submit}>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`checkin-month-${checkin.id}`}>Month</Label>
+                    <Input
+                      id={`checkin-month-${checkin.id}`}
+                      type="month"
+                      value={month}
+                      onChange={(event) => setMonth(event.target.value)}
+                      required
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`checkin-status-${checkin.id}`}>Status</Label>
+                    <Select
+                      value={status}
+                      onValueChange={(value) => setStatus(value as CheckinStatus)}
+                    >
+                      <SelectTrigger
+                        id={`checkin-status-${checkin.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CHECKIN_STATUSES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {titleCase(option)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                </div>
+                <FieldBlock>
+                  <Label htmlFor={`checkin-title-${checkin.id}`}>Title</Label>
+                  <Input
+                    id={`checkin-title-${checkin.id}`}
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    maxLength={100}
+                  />
+                </FieldBlock>
+                <FieldBlock>
+                  <Label htmlFor={`checkin-scheduled-${checkin.id}`}>
+                    Scheduled date
+                  </Label>
+                  <Input
+                    id={`checkin-scheduled-${checkin.id}`}
+                    type="date"
+                    value={scheduledFor}
+                    onChange={(event) => setScheduledFor(event.target.value)}
+                  />
+                </FieldBlock>
+                <FieldBlock>
+                  <Label htmlFor={`checkin-summary-${checkin.id}`}>Notes</Label>
+                  <Textarea
+                    id={`checkin-summary-${checkin.id}`}
+                    value={summary}
+                    onChange={(event) => setSummary(event.target.value)}
+                    maxLength={500}
+                  />
+                </FieldBlock>
+                <DialogFooter>
+                  <SubmitButton pending={pending}>Save changes</SubmitButton>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <DeleteButton
+            label="Check-in deleted"
+            description="This removes the check-in and its answers."
+            onDelete={() => deleteCheckinAction({ id: checkin.id })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+export function DocumentRowActions({
+  document,
+  canManage,
+}: {
+  document: DocumentActionRow;
+  canManage: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [name, setName] = useState(document.name);
+  const [category, setCategory] = useState<DocumentCategory>(document.category);
+  const [visibility, setVisibility] = useState<Visibility>(document.visibility);
+  const [expiresOn, setExpiresOn] = useState(document.expires_on ?? "");
+  const [reminderOn, setReminderOn] = useState(document.reminder_on ?? "");
+  const [notes, setNotes] = useState(document.notes ?? "");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    const result = await updateDocumentAction({
+      id: document.id,
+      name,
+      category,
+      visibility,
+      expiresOn,
+      reminderOn,
+      notes,
+    });
+    setPending(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Document updated");
+    setOpen(false);
+    router.refresh();
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <RowActionButton>
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit
+              </RowActionButton>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit document</DialogTitle>
+                <DialogDescription>Update document details.</DialogDescription>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={submit}>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`document-name-${document.id}`}>Name</Label>
+                    <Input
+                      id={`document-name-${document.id}`}
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      maxLength={100}
+                      required
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`document-category-${document.id}`}>
+                      Category
+                    </Label>
+                    <Select
+                      value={category}
+                      onValueChange={(value) =>
+                        setCategory(value as DocumentCategory)
+                      }
+                    >
+                      <SelectTrigger
+                        id={`document-category-${document.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DOCUMENT_CATEGORIES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {DOCUMENT_CATEGORY_LABELS[option]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`document-reminder-${document.id}`}>
+                      Reminder
+                    </Label>
+                    <Input
+                      id={`document-reminder-${document.id}`}
+                      type="date"
+                      value={reminderOn}
+                      onChange={(event) => setReminderOn(event.target.value)}
+                    />
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`document-expires-${document.id}`}>
+                      Expires
+                    </Label>
+                    <Input
+                      id={`document-expires-${document.id}`}
+                      type="date"
+                      value={expiresOn}
+                      onChange={(event) => setExpiresOn(event.target.value)}
+                    />
+                  </FieldBlock>
+                </div>
+                <FieldBlock>
+                  <Label>Visibility</Label>
+                  <VisibilitySelect value={visibility} onChange={setVisibility} />
+                </FieldBlock>
+                <FieldBlock>
+                  <Label htmlFor={`document-notes-${document.id}`}>Notes</Label>
+                  <Textarea
+                    id={`document-notes-${document.id}`}
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    maxLength={500}
+                  />
+                </FieldBlock>
+                <DialogFooter>
+                  <SubmitButton pending={pending}>Save changes</SubmitButton>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <DeleteButton
+            label="Document deleted"
+            description="This removes the document from the vault."
+            onDelete={() => deleteDocumentAction({ id: document.id })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+export function TaskRowActions({
+  task,
+  members,
+  canManage,
+}: {
+  task: TaskActionRow;
+  members: MemberOption[];
+  canManage: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description ?? "");
+  const [assignedTo, setAssignedTo] = useState(task.assigned_to ?? "unassigned");
+  const [dueOn, setDueOn] = useState(task.due_on ?? "");
+  const [priority, setPriority] = useState<TaskPriority>(task.priority);
+  const [status, setStatus] = useState<TaskStatus>(task.status);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    const result = await updateTaskAction({
+      id: task.id,
+      title,
+      description,
+      assignedTo: assignedTo === "unassigned" ? null : assignedTo,
+      dueOn,
+      priority,
+      status,
+    });
+    setPending(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Task updated");
+    setOpen(false);
+    router.refresh();
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      {!canManage ? (
+        <span className="px-2 text-xs text-muted-foreground">View only</span>
+      ) : (
+        <>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <RowActionButton>
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit
+              </RowActionButton>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit task</DialogTitle>
+                <DialogDescription>Update this follow-up.</DialogDescription>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={submit}>
+                <FieldBlock>
+                  <Label htmlFor={`task-title-${task.id}`}>Task</Label>
+                  <Input
+                    id={`task-title-${task.id}`}
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    maxLength={100}
+                    required
+                  />
+                </FieldBlock>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`task-assignee-${task.id}`}>Assigned to</Label>
+                    <Select value={assignedTo} onValueChange={setAssignedTo}>
+                      <SelectTrigger
+                        id={`task-assignee-${task.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                        {members.map((member) => (
+                          <SelectItem key={member.id} value={member.id}>
+                            {member.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`task-status-${task.id}`}>Status</Label>
+                    <Select
+                      value={status}
+                      onValueChange={(value) => setStatus(value as TaskStatus)}
+                    >
+                      <SelectTrigger
+                        id={`task-status-${task.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TASK_STATUSES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {titleCase(option)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FieldBlock>
+                    <Label htmlFor={`task-priority-${task.id}`}>Priority</Label>
+                    <Select
+                      value={priority}
+                      onValueChange={(value) => setPriority(value as TaskPriority)}
+                    >
+                      <SelectTrigger
+                        id={`task-priority-${task.id}`}
+                        className="h-11 w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TASK_PRIORITIES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {titleCase(option)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldBlock>
+                  <FieldBlock>
+                    <Label htmlFor={`task-due-${task.id}`}>Due date</Label>
+                    <Input
+                      id={`task-due-${task.id}`}
+                      type="date"
+                      value={dueOn}
+                      onChange={(event) => setDueOn(event.target.value)}
+                    />
+                  </FieldBlock>
+                </div>
+                <FieldBlock>
+                  <Label htmlFor={`task-description-${task.id}`}>Description</Label>
+                  <Textarea
+                    id={`task-description-${task.id}`}
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    maxLength={500}
+                  />
+                </FieldBlock>
+                <DialogFooter>
+                  <SubmitButton pending={pending}>Save changes</SubmitButton>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <DeleteButton
+            label="Task deleted"
+            description="This removes the task from the workspace."
+            onDelete={() => deleteTaskAction({ id: task.id })}
+          />
         </>
       )}
     </div>

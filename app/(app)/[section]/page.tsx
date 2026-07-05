@@ -99,10 +99,15 @@ import type {
 import {
   BudgetRowActions,
   BillPaymentActions,
+  CheckinRowActions,
   DebtRowActions,
+  DocumentRowActions,
   ExpenseRowActions,
   GoalRowActions,
+  InvestmentRowActions,
+  ResearchRowActions,
   SectionActions,
+  TaskRowActions,
 } from "./_components/section-actions";
 
 const SECTIONS = {
@@ -316,6 +321,25 @@ function memberName(ctx: WorkspaceContext, id: string | null): string {
   if (!id) return "Unassigned";
   const member = ctx.members.find((row) => row.user_id === id);
   return member?.profile.full_name ?? member?.profile.email ?? "Partner";
+}
+
+function memberOptions(ctx: WorkspaceContext) {
+  return ctx.members.map((member) => ({
+    id: member.user_id,
+    label: member.profile.full_name ?? member.profile.email,
+  }));
+}
+
+function canManageOwnedOrHousehold(
+  row: { owner_id?: string | null; created_by?: string; visibility: string },
+  userId: string
+): boolean {
+  return (
+    row.owner_id === userId ||
+    row.owner_id === null ||
+    row.created_by === userId ||
+    row.visibility === "household"
+  );
 }
 
 function statusBadge(status: string) {
@@ -1068,7 +1092,17 @@ function renderEmergencyFund(data: SectionData) {
                       <p className="font-medium">{row.emoji ? `${row.emoji} ` : ""}{row.name}</p>
                       <p className="text-xs text-muted-foreground">Target {formatDate(row.target_date)}</p>
                     </div>
-                    <p className="text-right text-sm tabular-nums">{formatCurrency(saved, { currency: data.currency })} / {formatCurrency(row.target_amount, { currency: data.currency })}</p>
+                    <div className="flex flex-col items-end gap-2">
+                      <p className="text-right text-sm tabular-nums">{formatCurrency(saved, { currency: data.currency })} / {formatCurrency(row.target_amount, { currency: data.currency })}</p>
+                      <GoalRowActions
+                        goal={row}
+                        currency={data.currency}
+                        canManage={
+                          !data.ctx.isDemo &&
+                          canManageOwnedOrHousehold(row, data.me)
+                        }
+                      />
+                    </div>
                   </div>
                   <Progress value={progressPercent(saved, row.target_amount)} />
                 </div>
@@ -1186,6 +1220,7 @@ function renderInvestments(data: SectionData) {
                 <TableHead>Owner</TableHead>
                 <TableHead>As of</TableHead>
                 <TableHead className="text-right">Value</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1197,6 +1232,17 @@ function renderInvestments(data: SectionData) {
                   <TableCell>{memberName(data.ctx, investment.owner_id)}</TableCell>
                   <TableCell>{formatDate(holding.as_of)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(holding.current_value, { currency: data.currency })}</TableCell>
+                  <TableCell>
+                    <InvestmentRowActions
+                      investment={investment}
+                      holding={holding}
+                      currency={data.currency}
+                      canManage={
+                        !data.ctx.isDemo &&
+                        canManageOwnedOrHousehold(investment, data.me)
+                      }
+                    />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1234,6 +1280,7 @@ function renderResearch(data: SectionData) {
                 <TableHead>Pros / cons</TableHead>
                 <TableHead>Visibility</TableHead>
                 <TableHead className="text-right">Estimated cost</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1245,6 +1292,16 @@ function renderResearch(data: SectionData) {
                   <TableCell>{row.pros.length} / {row.cons.length}</TableCell>
                   <TableCell><VisibilityBadge visibility={row.visibility} /></TableCell>
                   <TableCell className="text-right tabular-nums">{row.estimated_cost ? formatCurrency(row.estimated_cost, { currency: data.currency }) : "-"}</TableCell>
+                  <TableCell>
+                    <ResearchRowActions
+                      item={row}
+                      currency={data.currency}
+                      canManage={
+                        !data.ctx.isDemo &&
+                        canManageOwnedOrHousehold(row, data.me)
+                      }
+                    />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1281,6 +1338,7 @@ function renderCheckins(data: SectionData) {
                 <TableHead>Status</TableHead>
                 <TableHead>Scheduled</TableHead>
                 <TableHead>Completed</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1291,6 +1349,12 @@ function renderCheckins(data: SectionData) {
                   <TableCell>{statusBadge(row.status)}</TableCell>
                   <TableCell>{formatDate(row.scheduled_for)}</TableCell>
                   <TableCell>{formatDate(row.completed_at)}</TableCell>
+                  <TableCell>
+                    <CheckinRowActions
+                      checkin={row}
+                      canManage={!data.ctx.isDemo}
+                    />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1331,6 +1395,7 @@ function renderDocuments(data: SectionData) {
                 <TableHead>Expires</TableHead>
                 <TableHead>Visibility</TableHead>
                 <TableHead className="text-right">Size</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1343,6 +1408,15 @@ function renderDocuments(data: SectionData) {
                   <TableCell>{formatDate(row.expires_on)}</TableCell>
                   <TableCell><VisibilityBadge visibility={row.visibility} /></TableCell>
                   <TableCell className="text-right tabular-nums">{formatFileSize(row.file_size)}</TableCell>
+                  <TableCell>
+                    <DocumentRowActions
+                      document={row}
+                      canManage={
+                        !data.ctx.isDemo &&
+                        canManageOwnedOrHousehold(row, data.me)
+                      }
+                    />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1379,6 +1453,7 @@ function renderTasks(data: SectionData) {
                 <TableHead>Due</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1389,6 +1464,13 @@ function renderTasks(data: SectionData) {
                   <TableCell>{formatDate(row.due_on)}</TableCell>
                   <TableCell className="capitalize">{row.priority}</TableCell>
                   <TableCell>{statusBadge(row.status)}</TableCell>
+                  <TableCell>
+                    <TaskRowActions
+                      task={row}
+                      members={memberOptions(data.ctx)}
+                      canManage={!data.ctx.isDemo}
+                    />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1639,10 +1721,7 @@ export default async function SectionPage(props: {
             currency={data.currency}
             workspaceId={data.ctx.workspace.id}
             userId={data.me}
-            members={data.ctx.members.map((member) => ({
-              id: member.user_id,
-              label: member.profile.full_name ?? member.profile.email,
-            }))}
+            members={memberOptions(data.ctx)}
             readOnly={data.ctx.isDemo}
           />
         }
