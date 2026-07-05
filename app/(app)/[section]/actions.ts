@@ -5,16 +5,21 @@ import { z } from "zod";
 
 import { logActivity, notifyPartner } from "@/lib/activity";
 import {
+  ASSET_CLASSES,
+  DECISION_TYPES,
   DEBT_TYPES,
+  DOCUMENT_CATEGORIES,
   EXPENSE_CATEGORIES,
   EXPENSE_TYPES,
   GOAL_TYPES,
   RECURRENCE_FREQUENCIES,
+  RISK_LEVELS,
   ROUTES,
+  TASK_PRIORITIES,
   VISIBILITY_LEVELS,
 } from "@/lib/constants";
 import { requireWorkspace, type WorkspaceContext } from "@/lib/data/workspace";
-import { canCreateGoal } from "@/lib/plans";
+import { canCreateGoal, canUploadDocument } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 
 type ActionResult = { error: string } | { success: true };
@@ -28,6 +33,12 @@ const dollars = z
   .max(100_000_000);
 
 const optionalDollars = z.number().finite().min(0).max(100_000_000);
+const optionalPositiveQuantity = z
+  .number()
+  .finite()
+  .min(0)
+  .max(1_000_000_000)
+  .nullable();
 
 const shortText = (message: string) =>
   z.string().trim().min(1, message).max(100, "Keep it under 100 characters");
@@ -37,6 +48,13 @@ const optionalNotes = z
   .trim()
   .max(500, "Keep notes under 500 characters")
   .optional();
+
+const optionalDate = z.iso.date("Choose a valid date").optional().or(z.literal(""));
+
+const stringList = z
+  .array(z.string().trim().min(1).max(160))
+  .max(20, "Keep the list short")
+  .default([]);
 
 const monthSchema = z
   .string()
@@ -91,6 +109,69 @@ const goalSchema = z.object({
 });
 const goalWithIdSchema = goalSchema.merge(idSchema);
 
+const investmentSchema = z.object({
+  name: shortText("Name this investment"),
+  assetClass: z.enum(ASSET_CLASSES),
+  accountName: z.string().trim().max(100, "Keep it under 100 characters").optional(),
+  riskLevel: z.enum(RISK_LEVELS).nullable(),
+  visibility: z.enum(VISIBILITY_LEVELS),
+  isWatchlist: z.boolean(),
+  holdingName: shortText("Name this holding"),
+  symbol: z.string().trim().max(20, "Keep the symbol short").optional(),
+  quantity: optionalPositiveQuantity,
+  costBasis: optionalDollars.nullable(),
+  currentValue: optionalDollars,
+  asOf: optionalDate,
+  notes: optionalNotes,
+});
+
+const emergencyFundSchema = z.object({
+  name: shortText("Name this emergency fund"),
+  targetAmount: dollars,
+  currentSavings: optionalDollars,
+  targetDate: optionalDate,
+  monthlyContribution: optionalDollars,
+  visibility: z.enum(VISIBILITY_LEVELS),
+  notes: optionalNotes,
+});
+
+const researchSchema = z.object({
+  title: shortText("Name this research item"),
+  decisionType: z.enum(DECISION_TYPES),
+  estimatedCost: optionalDollars.nullable(),
+  pros: stringList,
+  cons: stringList,
+  visibility: z.enum(VISIBILITY_LEVELS),
+  notes: optionalNotes,
+});
+
+const checkinSchema = z.object({
+  month: monthSchema,
+  title: z.string().trim().max(100, "Keep it under 100 characters").optional(),
+  scheduledFor: optionalDate,
+  summary: optionalNotes,
+});
+
+const documentSchema = z.object({
+  name: shortText("Name this document"),
+  category: z.enum(DOCUMENT_CATEGORIES),
+  storagePath: z.string().trim().min(1).max(500),
+  fileSize: z.number().int().min(0).max(20 * 1024 * 1024).nullable(),
+  mimeType: z.string().trim().max(120).nullable(),
+  visibility: z.enum(VISIBILITY_LEVELS),
+  expiresOn: optionalDate,
+  reminderOn: optionalDate,
+  notes: optionalNotes,
+});
+
+const taskSchema = z.object({
+  title: shortText("Name this task"),
+  description: optionalNotes,
+  assignedTo: z.uuid().nullable(),
+  dueOn: optionalDate,
+  priority: z.enum(TASK_PRIORITIES),
+});
+
 function actorName(fullName: string | null, email: string): string {
   return fullName?.trim() || email || "Your partner";
 }
@@ -134,6 +215,11 @@ async function refreshMoneyPages() {
   revalidatePath(ROUTES.goals);
   revalidatePath(ROUTES.coupleGoals);
   revalidatePath(ROUTES.emergencyFund);
+  revalidatePath(ROUTES.investments);
+  revalidatePath(ROUTES.research);
+  revalidatePath(ROUTES.checkins);
+  revalidatePath(ROUTES.documents);
+  revalidatePath(ROUTES.tasks);
   revalidatePath(ROUTES.activity);
 }
 
@@ -402,6 +488,439 @@ export async function createGoalAction(
       link: ROUTES.goals,
     });
   }
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function createInvestmentAction(
+  input: z.input<typeof investmentSchema>
+): Promise<ActionResult> {
+  const parsed = investmentSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the investment details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+
+  const { data: investment, error } = await supabase
+    .from("investments")
+    .insert({
+      workspace_id: ctx.workspace.id,
+      owner_id: ctx.user.id,
+      name: data.name,
+      asset_class: data.assetClass,
+      account_name: data.accountName?.trim() || null,
+      risk_level: data.riskLevel,
+      visibility: data.visibility,
+      is_watchlist: data.isWatchlist,
+      notes: data.notes?.trim() || null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !investment) {
+    return { error: "The investment could not be saved. Please try again." };
+  }
+
+  const { error: holdingError } = await supabase
+    .from("investment_holdings")
+    .insert({
+      investment_id: investment.id,
+      name: data.holdingName,
+      symbol: data.symbol?.trim() || null,
+      quantity: data.quantity,
+      cost_basis: data.costBasis,
+      current_value: data.currentValue,
+      as_of: data.asOf || null,
+      notes: data.notes?.trim() || null,
+    });
+
+  if (holdingError) {
+    await supabase.from("investments").delete().eq("id", investment.id);
+    return { error: "The holding could not be saved. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "investment.created",
+    entityType: "investment",
+    entityId: investment.id,
+    visibility: data.visibility,
+    summary:
+      data.visibility === "private"
+        ? `You added a private investment: ${data.name}`
+        : `${name} added an investment: ${data.name}`,
+  });
+  if (data.visibility !== "private") {
+    await notifyPartner(supabase, {
+      workspaceId: ctx.workspace.id,
+      actorId: ctx.user.id,
+      type: "investment.created",
+      title: `${name} added an investment`,
+      body: data.name,
+      link: ROUTES.investments,
+    });
+  }
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function createEmergencyFundAction(
+  input: z.input<typeof emergencyFundSchema>
+): Promise<ActionResult> {
+  const parsed = emergencyFundSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error:
+        parsed.error.issues[0]?.message ?? "Check the emergency fund details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("savings_goals")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", ctx.workspace.id);
+
+  if (!canCreateGoal(ctx.plan, count ?? 0)) {
+    return { error: "Your current plan has reached its goal limit." };
+  }
+
+  const data = parsed.data;
+  const { data: goal, error } = await supabase
+    .from("savings_goals")
+    .insert({
+      workspace_id: ctx.workspace.id,
+      created_by: ctx.user.id,
+      name: data.name,
+      goal_type: "emergency_fund",
+      target_amount: data.targetAmount,
+      target_date: data.targetDate || null,
+      monthly_contribution:
+        data.monthlyContribution > 0 ? data.monthlyContribution : null,
+      visibility: data.visibility,
+      notes: data.notes?.trim() || null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !goal) {
+    return { error: "The emergency fund could not be saved. Please try again." };
+  }
+
+  if (data.currentSavings > 0) {
+    const { error: contributionError } = await supabase
+      .from("goal_contributions")
+      .insert({
+        goal_id: goal.id,
+        user_id: ctx.user.id,
+        amount: data.currentSavings,
+        contributed_on: new Date().toISOString().slice(0, 10),
+        note: "Starting balance",
+      });
+
+    if (contributionError) {
+      await supabase.from("savings_goals").delete().eq("id", goal.id);
+      return {
+        error: "The starting balance could not be saved. Please try again.",
+      };
+    }
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "emergency_fund.created",
+    entityType: "goal",
+    entityId: goal.id,
+    visibility: data.visibility,
+    summary:
+      data.visibility === "private"
+        ? `You added a private emergency fund: ${data.name}`
+        : `${name} added an emergency fund: ${data.name}`,
+  });
+  if (data.visibility !== "private") {
+    await notifyPartner(supabase, {
+      workspaceId: ctx.workspace.id,
+      actorId: ctx.user.id,
+      type: "emergency_fund.created",
+      title: `${name} added an emergency fund`,
+      body: data.name,
+      link: ROUTES.emergencyFund,
+    });
+  }
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function createResearchAction(
+  input: z.input<typeof researchSchema>
+): Promise<ActionResult> {
+  const parsed = researchSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the research details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+
+  const { data: research, error } = await supabase
+    .from("research_items")
+    .insert({
+      workspace_id: ctx.workspace.id,
+      created_by: ctx.user.id,
+      title: data.title,
+      decision_type: data.decisionType,
+      estimated_cost: data.estimatedCost,
+      pros: data.pros,
+      cons: data.cons,
+      visibility: data.visibility,
+      notes: data.notes?.trim() || null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !research) {
+    return { error: "The research item could not be saved. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "research.created",
+    entityType: "research",
+    entityId: research.id,
+    visibility: data.visibility,
+    summary:
+      data.visibility === "private"
+        ? `You added private research: ${data.title}`
+        : `${name} added research: ${data.title}`,
+  });
+  if (data.visibility !== "private") {
+    await notifyPartner(supabase, {
+      workspaceId: ctx.workspace.id,
+      actorId: ctx.user.id,
+      type: "research.created",
+      title: `${name} added research`,
+      body: data.title,
+      link: ROUTES.research,
+    });
+  }
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function createCheckinAction(
+  input: z.input<typeof checkinSchema>
+): Promise<ActionResult> {
+  const parsed = checkinSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the check-in details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const data = parsed.data;
+
+  const { data: checkin, error } = await supabase
+    .from("money_checkins")
+    .insert({
+      workspace_id: ctx.workspace.id,
+      created_by: ctx.user.id,
+      month: data.month,
+      title: data.title?.trim() || null,
+      scheduled_for: data.scheduledFor || null,
+      summary: data.summary?.trim() || null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !checkin) {
+    return { error: "The check-in could not be saved. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "checkin.created",
+    entityType: "checkin",
+    entityId: checkin.id,
+    summary: `${name} started a money check-in`,
+  });
+  await notifyPartner(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    type: "checkin.created",
+    title: `${name} started a money check-in`,
+    body: data.title?.trim() || "Money check-in",
+    link: ROUTES.checkins,
+  });
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function createDocumentAction(
+  input: z.input<typeof documentSchema>
+): Promise<ActionResult> {
+  const parsed = documentSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Check the document details.",
+    };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("documents")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", ctx.workspace.id);
+
+  if (!canUploadDocument(ctx.plan, count ?? 0)) {
+    return { error: "Your current plan has reached its document limit." };
+  }
+
+  const data = parsed.data;
+  const requiredPrefix = `${ctx.workspace.id}/${ctx.user.id}/`;
+  if (!data.storagePath.startsWith(requiredPrefix)) {
+    return { error: "The uploaded file path is not valid." };
+  }
+
+  const { data: document, error } = await supabase
+    .from("documents")
+    .insert({
+      workspace_id: ctx.workspace.id,
+      owner_id: ctx.user.id,
+      name: data.name,
+      category: data.category,
+      storage_path: data.storagePath,
+      file_size: data.fileSize,
+      mime_type: data.mimeType,
+      visibility: data.visibility,
+      expires_on: data.expiresOn || null,
+      reminder_on: data.reminderOn || null,
+      notes: data.notes?.trim() || null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !document) {
+    return { error: "The document could not be saved. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "document.created",
+    entityType: "document",
+    entityId: document.id,
+    visibility: data.visibility,
+    summary:
+      data.visibility === "private"
+        ? `You added a private document: ${data.name}`
+        : `${name} added a document: ${data.name}`,
+  });
+  if (data.visibility !== "private") {
+    await notifyPartner(supabase, {
+      workspaceId: ctx.workspace.id,
+      actorId: ctx.user.id,
+      type: "document.created",
+      title: `${name} added a document`,
+      body: data.name,
+      link: ROUTES.documents,
+    });
+  }
+
+  await refreshMoneyPages();
+  return { success: true };
+}
+
+export async function createTaskAction(
+  input: z.input<typeof taskSchema>
+): Promise<ActionResult> {
+  const parsed = taskSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the task details." };
+  }
+
+  const ctx = await requireWorkspace();
+  const demoError = demoReadOnly(ctx);
+  if (demoError) return demoError;
+  const data = parsed.data;
+  if (
+    data.assignedTo &&
+    !ctx.members.some((member) => member.user_id === data.assignedTo)
+  ) {
+    return { error: "Choose someone from this workspace." };
+  }
+
+  const supabase = await createClient();
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .insert({
+      workspace_id: ctx.workspace.id,
+      created_by: ctx.user.id,
+      assigned_to: data.assignedTo,
+      title: data.title,
+      description: data.description?.trim() || null,
+      due_on: data.dueOn || null,
+      priority: data.priority,
+    })
+    .select("id")
+    .single();
+
+  if (error || !task) {
+    return { error: "The task could not be saved. Please try again." };
+  }
+
+  const name = actorName(ctx.profile.full_name, ctx.profile.email);
+  await logActivity(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    eventType: "task.created",
+    entityType: "task",
+    entityId: task.id,
+    summary: `${name} added a task: ${data.title}`,
+  });
+  await notifyPartner(supabase, {
+    workspaceId: ctx.workspace.id,
+    actorId: ctx.user.id,
+    type: "task.created",
+    title: `${name} added a task`,
+    body: data.title,
+    link: ROUTES.tasks,
+  });
 
   await refreshMoneyPages();
   return { success: true };

@@ -1485,6 +1485,12 @@ export default async function SectionPage(props: {
             today={data.today.toISOString().slice(0, 10)}
             currentMonth={data.currentMonthStart.slice(0, 7)}
             currency={data.currency}
+            workspaceId={data.ctx.workspace.id}
+            userId={data.me}
+            members={data.ctx.members.map((member) => ({
+              id: member.user_id,
+              label: member.profile.full_name ?? member.profile.email,
+            }))}
             readOnly={data.ctx.isDemo}
           />
         }
