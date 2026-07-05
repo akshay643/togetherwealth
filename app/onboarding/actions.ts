@@ -12,6 +12,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { redirect } from "next/navigation";
 
 import { logActivity, notifyPartner } from "@/lib/activity";
 import { MONEY_STYLE_META, ROUTES } from "@/lib/constants";
@@ -1018,7 +1019,7 @@ export async function finishOnboardingAction(
     link: ROUTES.dashboard,
   });
 
-  return {};
+  redirect(ROUTES.dashboard);
 }
 
 // ---------------------------------------------------------------------------

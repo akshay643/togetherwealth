@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,7 +45,6 @@ export function OnboardingWizard({
   initialWorkspace,
   initialInvite,
 }: WizardProps) {
-  const router = useRouter();
   const [step, setStep] = useState(() =>
     clampInitialStep(initialStep, initialWorkspace)
   );
@@ -81,8 +79,7 @@ export function OnboardingWizard({
       return;
     }
 
-    router.push(ROUTES.dashboard);
-    router.refresh();
+    window.location.assign(ROUTES.dashboard);
   }
 
   function nextAfterWorkspace(nextWorkspace: WizardWorkspace) {
