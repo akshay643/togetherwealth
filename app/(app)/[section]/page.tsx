@@ -92,7 +92,13 @@ import type {
   ResearchItem,
   Task,
 } from "@/lib/types/database";
-import { SectionActions } from "./_components/section-actions";
+import {
+  BudgetRowActions,
+  DebtRowActions,
+  ExpenseRowActions,
+  GoalRowActions,
+  SectionActions,
+} from "./_components/section-actions";
 
 const SECTIONS = {
   "net-worth": {
@@ -669,6 +675,7 @@ function renderExpenses(data: SectionData) {
                 <TableHead>Split</TableHead>
                 <TableHead>Visibility</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -681,6 +688,9 @@ function renderExpenses(data: SectionData) {
                   <TableCell>{SPLIT_METHOD_META[row.split_method].label}</TableCell>
                   <TableCell><VisibilityBadge visibility={row.visibility} /></TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(row.amount, { currency: data.currency })}</TableCell>
+                  <TableCell>
+                    <ExpenseRowActions expense={row} />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -723,16 +733,19 @@ function renderBudgets(data: SectionData) {
               const spent = budgetSpent(row, monthExpenses);
               return (
                 <div key={row.id} className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="text-sm font-medium">{EXPENSE_CATEGORY_LABELS[row.category]}</p>
                       <p className="text-xs text-muted-foreground">
                         {titleCase(row.scope)} budget {row.owner_id ? `for ${memberName(data.ctx, row.owner_id)}` : ""}
                       </p>
                     </div>
-                    <div className="text-right text-sm tabular-nums">
+                    <div className="flex flex-col items-end gap-1 text-right text-sm tabular-nums">
                       <p>{formatCurrency(spent, { currency: data.currency })} / {formatCurrency(row.amount, { currency: data.currency })}</p>
-                      <VisibilityBadge visibility={row.visibility} />
+                      <div className="flex flex-wrap justify-end gap-1">
+                        <VisibilityBadge visibility={row.visibility} />
+                        <BudgetRowActions budget={row} />
+                      </div>
                     </div>
                   </div>
                   <Progress value={progressPercent(spent, row.amount)} />
@@ -783,6 +796,7 @@ function renderDebts(data: SectionData) {
                   <TableHead>APR</TableHead>
                   <TableHead className="text-right">Minimum</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -794,6 +808,9 @@ function renderDebts(data: SectionData) {
                     <TableCell>{row.apr.toFixed(2)}%</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(row.minimum_payment, { currency: data.currency })}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(row.balance, { currency: data.currency })}</TableCell>
+                    <TableCell>
+                      <DebtRowActions debt={row} />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -912,6 +929,7 @@ function renderGoals(data: SectionData, coupleOnly = false) {
                 <TableHead>Target date</TableHead>
                 <TableHead>Visibility</TableHead>
                 <TableHead className="text-right">Progress</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -927,6 +945,9 @@ function renderGoals(data: SectionData, coupleOnly = false) {
                     <TableCell className="min-w-44 text-right">
                       <span className="text-xs tabular-nums">{formatCurrency(savedAmount, { currency: data.currency })} / {formatCurrency(row.target_amount, { currency: data.currency })}</span>
                       <Progress className="mt-1" value={progressPercent(savedAmount, row.target_amount)} />
+                    </TableCell>
+                    <TableCell>
+                      <GoalRowActions goal={row} coupleOnly={coupleOnly} />
                     </TableCell>
                   </TableRow>
                 );
