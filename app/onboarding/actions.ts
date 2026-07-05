@@ -263,6 +263,15 @@ export async function createWorkspaceAction(
     .single();
   if (error || !workspace) return { error: GENERIC_ERROR };
 
+  await supabase.from("workspace_members").upsert(
+    {
+      workspace_id: workspace.id,
+      user_id: user.id,
+      role: "owner",
+    },
+    { onConflict: "workspace_id,user_id" }
+  );
+
   await logActivity(supabase, {
     workspaceId: workspace.id,
     actorId: user.id,

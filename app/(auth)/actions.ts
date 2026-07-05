@@ -123,7 +123,7 @@ export async function signupAction(input: {
   }
 
   if (data.session) {
-    redirect(next ?? ROUTES.onboarding);
+    redirect(next?.startsWith("/invite/") ? next : ROUTES.onboarding);
   }
 
   return { checkEmail: true };
